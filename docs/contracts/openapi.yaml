@@ -1,0 +1,468 @@
+openapi: 3.1.0
+info:
+  title: CryptoML API — contrat proposé
+  description: >-
+    Schéma cible pour la phase de recherche prédictive LightGBM multi-crypto.
+    Ce document ne signifie pas que l'API est déjà implémentée.
+    Toutes les données démo doivent porter demo=true.
+  version: 0.1.0-draft
+servers:
+  - url: http://localhost:8000
+    description: Local (après implémentation du backend)
+tags:
+  - name: Health
+  - name: Market
+  - name: Datasets
+  - name: Training
+  - name: Models
+  - name: Evaluation
+  - name: Replay
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: État du service
+      operationId: getHealth
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: {type: string, enum: [ok, degraded]}
+  /api/v1/markets/symbols:
+    get:
+      tags: [Market]
+      summary: Paires connues, marché USDT-M
+      operationId: listSymbols
+      responses:
+        '200':
+          description: Liste des paires éligibles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/SymbolCoverage'}
+  /api/v1/market/candles:
+    get:
+      tags: [Market]
+      summary: Bougies OHLCV clôturées
+      operationId: getMarketCandles
+      parameters:
+        - $ref: '#/components/parameters/Symbol'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: timeframe
+          in: query
+          schema: {type: string, enum: [5m], default: 5m}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 5000, default: 1000}
+      responses:
+        '200':
+          description: Liste ascendante de bougies (time UNIX secondes, début bougie)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Candle'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /api/v1/datasets:
+    get:
+      tags: [Datasets]
+      summary: Datasets versionnés
+      operationId: listDatasets
+      responses:
+        '200':
+          description: Datasets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/Dataset'}
+  /api/v1/datasets/{dataset_id}/quality:
+    get:
+      tags: [Datasets]
+      summary: Qualité du dataset
+      operationId: getDatasetQuality
+      parameters:
+        - {name: dataset_id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Rapport de qualité
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DatasetQuality'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /api/v1/training-runs:
+    post:
+      tags: [Training]
+      summary: Création d'un run d'entraînement
+      description: Commande protégée en production ; renvoie un job asynchrone.
+      operationId: createTrainingRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TrainingRequest'}
+      responses:
+        '202':
+          description: Job ajouté
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TrainingCreated'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /api/v1/training-runs/{run_id}:
+    get:
+      tags: [Training]
+      summary: Statut et progression d'un entraînement
+      operationId: getTrainingRun
+      parameters:
+        - {name: run_id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Run
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TrainingRun'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /api/v1/models:
+    get:
+      tags: [Models]
+      summary: Modèles entraînés
+      operationId: listModels
+      parameters:
+        - $ref: '#/components/parameters/HorizonOptional'
+      responses:
+        '200':
+          description: Modèles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/ModelInfo'}
+  /api/v1/evaluations/{evaluation_id}:
+    get:
+      tags: [Evaluation]
+      summary: Rapport d'évaluation hors échantillon
+      operationId: getEvaluation
+      parameters:
+        - {name: evaluation_id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Évaluation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/EvaluationReport'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /api/v1/predictions:
+    get:
+      tags: [Evaluation]
+      summary: Prédictions et verdicts paginés
+      operationId: listPredictions
+      parameters:
+        - {name: evaluation_id, in: query, required: true, schema: {type: string}}
+        - $ref: '#/components/parameters/Symbol'
+        - $ref: '#/components/parameters/HorizonOptional'
+        - name: cursor
+          in: query
+          schema: {type: string}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 500, default: 100}
+      responses:
+        '200':
+          description: Page
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PaginatedPredictions'}
+  /api/v1/predictions/latest:
+    get:
+      tags: [Evaluation]
+      summary: Dernière prédiction enregistrée
+      operationId: getLatestPrediction
+      parameters:
+        - $ref: '#/components/parameters/Symbol'
+        - name: model_version
+          in: query
+          required: true
+          schema: {type: string}
+        - $ref: '#/components/parameters/Horizon'
+      responses:
+        '200':
+          description: Prévision
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Prediction'}
+        '404': {$ref: '#/components/responses/ApiError'}
+  /api/v1/replay:
+    get:
+      tags: [Replay]
+      summary: Replay temporel à curseur, sans futur
+      operationId: getReplay
+      parameters:
+        - {name: evaluation_id, in: query, required: true, schema: {type: string}}
+        - $ref: '#/components/parameters/Symbol'
+        - $ref: '#/components/parameters/Horizon'
+        - name: cursor_at
+          in: query
+          required: true
+          schema: {type: string, format: date-time}
+        - name: from
+          in: query
+          required: true
+          schema: {type: string, format: date-time}
+        - name: to
+          in: query
+          required: true
+          schema: {type: string, format: date-time}
+      responses:
+        '200':
+          description: Seulement les données disponibles à cursor_at
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ReplayResponse'}
+        '422': {$ref: '#/components/responses/ApiError'}
+  /api/v1/explanations/{prediction_id}:
+    get:
+      tags: [Evaluation]
+      summary: Contribution des features à une prédiction (si calculée)
+      operationId: getPredictionExplanation
+      parameters:
+        - {name: prediction_id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Importance locale stockée
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Explanation'}
+        '404': {$ref: '#/components/responses/ApiError'}
+components:
+  parameters:
+    Symbol:
+      name: symbol
+      in: query
+      required: true
+      schema: {type: string, pattern: '^[A-Z0-9]+$'}
+    Horizon:
+      name: horizon_bars
+      in: query
+      required: true
+      schema: {type: integer, enum: [3, 6, 12]}
+    HorizonOptional:
+      name: horizon_bars
+      in: query
+      schema: {type: integer, enum: [3, 6, 12]}
+    From:
+      name: from
+      in: query
+      required: true
+      schema: {type: string, format: date-time}
+    To:
+      name: to
+      in: query
+      required: true
+      schema: {type: string, format: date-time}
+  responses:
+    ApiError:
+      description: Erreur de validation ou ressource introuvable
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                type: object
+                required: [code, message, request_id]
+                properties:
+                  code: {type: string}
+                  message: {type: string}
+                  request_id: {type: string}
+  schemas:
+    SymbolCoverage:
+      type: object
+      required: [symbol, market, timeframe, coverage_start, coverage_end]
+      properties:
+        symbol: {type: string}
+        market: {type: string, const: usdt_perpetual}
+        timeframe: {type: string, const: 5m}
+        coverage_start: {type: string, format: date-time}
+        coverage_end: {type: string, format: date-time}
+        eligible: {type: boolean}
+    Candle:
+      type: object
+      required: [time, open, high, low, close, volume]
+      properties:
+        time: {type: integer, description: Début bougie en secondes UNIX}
+        open: {type: number}
+        high: {type: number}
+        low: {type: number}
+        close: {type: number}
+        volume: {type: number}
+    Dataset:
+      type: object
+      required: [dataset_id, market, timeframe, symbols, start_at, end_at]
+      properties:
+        dataset_id: {type: string}
+        market: {type: string}
+        timeframe: {type: string}
+        symbols: {type: array, items: {type: string}}
+        start_at: {type: string, format: date-time}
+        end_at: {type: string, format: date-time}
+        is_eligible: {type: boolean}
+    DatasetQuality:
+      type: object
+      required: [dataset_id, symbols]
+      properties:
+        dataset_id: {type: string}
+        symbols:
+          type: array
+          items:
+            type: object
+            required: [symbol, bars, missing_bars, duplicates, eligible]
+            properties:
+              symbol: {type: string}
+              bars: {type: integer, minimum: 0}
+              missing_bars: {type: integer, minimum: 0}
+              duplicates: {type: integer, minimum: 0}
+              eligible: {type: boolean}
+    TrainingRequest:
+      type: object
+      required: [dataset_id, feature_schema_version, label_config_id, horizons, model_family, validation_protocol]
+      properties:
+        dataset_id: {type: string}
+        feature_schema_version: {type: string}
+        label_config_id: {type: string}
+        horizons:
+          type: array
+          uniqueItems: true
+          minItems: 1
+          items: {type: integer, enum: [3, 6, 12]}
+        model_family: {type: string, enum: [lightgbm]}
+        validation_protocol: {type: string}
+    TrainingCreated:
+      type: object
+      required: [run_id, status]
+      properties:
+        run_id: {type: string}
+        status: {type: string, const: QUEUED}
+    TrainingRun:
+      type: object
+      required: [run_id, status, progress]
+      properties:
+        run_id: {type: string}
+        status: {type: string, enum: [QUEUED, RUNNING, EVALUATING, COMPLETED, FAILED, CANCELLED]}
+        progress: {type: number, minimum: 0, maximum: 1}
+        stage: {type: string}
+        error_message: {type: [string, 'null']}
+    ModelInfo:
+      type: object
+      required: [model_version, run_id, horizon_bars, feature_schema_version, status]
+      properties:
+        model_version: {type: string}
+        run_id: {type: string}
+        horizon_bars: {type: integer, enum: [3, 6, 12]}
+        feature_schema_version: {type: string}
+        status: {type: string, enum: [EXPERIMENTAL, VALIDATED_OOS, ARCHIVED]}
+    ClassProbabilities:
+      type: object
+      required: [up, neutral, down]
+      description: Les valeurs sont dans [0,1] et leur somme est 1 à tolérance numérique.
+      properties:
+        up: {type: number, minimum: 0, maximum: 1}
+        neutral: {type: number, minimum: 0, maximum: 1}
+        down: {type: number, minimum: 0, maximum: 1}
+    Prediction:
+      type: object
+      required: [prediction_id, symbol, market, timeframe, bar_close_at, prediction_issued_at, model_version, run_id, feature_schema_version, horizon_bars, probabilities, predicted_class, label_mature_at, evaluation_status, actual_class, actual_return, demo]
+      properties:
+        prediction_id: {type: string}
+        evaluation_id: {type: [string, 'null']}
+        fold_id: {type: [string, 'null']}
+        symbol: {type: string}
+        market: {type: string, const: usdt_perpetual}
+        timeframe: {type: string, const: 5m}
+        bar_close_at: {type: string, format: date-time}
+        prediction_issued_at: {type: string, format: date-time}
+        model_version: {type: string}
+        run_id: {type: string}
+        feature_schema_version: {type: string}
+        horizon_bars: {type: integer, enum: [3, 6, 12]}
+        probabilities: {$ref: '#/components/schemas/ClassProbabilities'}
+        predicted_class: {type: string, enum: [UP, NEUTRAL, DOWN]}
+        label_mature_at: {type: string, format: date-time}
+        evaluation_status: {type: string, enum: [PENDING, MATURED, UNAVAILABLE]}
+        actual_class: {type: [string, 'null'], enum: [UP, NEUTRAL, DOWN, null]}
+        actual_return: {type: [number, 'null']}
+        demo: {type: boolean}
+    PaginatedPredictions:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Prediction'}
+        next_cursor: {type: [string, 'null']}
+        total: {type: [integer, 'null']}
+    MetricSummary:
+      type: object
+      properties:
+        balanced_accuracy: {type: [number, 'null']}
+        macro_f1: {type: [number, 'null']}
+        log_loss: {type: [number, 'null']}
+        sample_count: {type: integer}
+    EvaluationReport:
+      type: object
+      required: [evaluation_id, run_id, model_version, horizon_bars, segment, metrics, demo]
+      properties:
+        evaluation_id: {type: string}
+        run_id: {type: string}
+        model_version: {type: string}
+        horizon_bars: {type: integer, enum: [3, 6, 12]}
+        segment: {type: string, enum: [TRAIN, VALIDATION, WALK_FORWARD_OOS, FINAL_TEMPORAL, UNSEEN_SYMBOLS]}
+        metrics: {$ref: '#/components/schemas/MetricSummary'}
+        confusion_matrix:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            type: array
+            minItems: 3
+            maxItems: 3
+            items: {type: integer, minimum: 0}
+        demo: {type: boolean}
+    ReplayResponse:
+      type: object
+      required: [evaluation_id, symbol, horizon_bars, cursor_at, candles, predictions, demo]
+      properties:
+        evaluation_id: {type: string}
+        symbol: {type: string}
+        horizon_bars: {type: integer, enum: [3, 6, 12]}
+        cursor_at: {type: string, format: date-time}
+        candles:
+          type: array
+          items: {$ref: '#/components/schemas/Candle'}
+        predictions:
+          type: array
+          items: {$ref: '#/components/schemas/Prediction'}
+        demo: {type: boolean}
+    Explanation:
+      type: object
+      required: [prediction_id, model_version, contributions]
+      properties:
+        prediction_id: {type: string}
+        model_version: {type: string}
+        target_class: {type: string, enum: [UP, NEUTRAL, DOWN]}
+        base_value: {type: number}
+        contributions:
+          type: array
+          items:
+            type: object
+            required: [feature, value]
+            properties:
+              feature: {type: string}
+              value: {type: number}

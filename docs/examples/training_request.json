@@ -1,0 +1,8 @@
+{
+  "dataset_id": "ds_pilot_001",
+  "feature_schema_version": "features_v1",
+  "label_config_id": "vol_scaled_v1",
+  "horizons": [3, 6, 12],
+  "model_family": "lightgbm",
+  "validation_protocol": "purged_rolling_walk_forward_v1"
+}
