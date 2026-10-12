@@ -1,0 +1,19 @@
+# Python / JS
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
+**/.venv/
+*.egg-info/
+.env
+.env.*
+!.env.example
+!.env.cryptoml.example
+
+# Market data, outputs and artifacts (never commit raw datasets)
+/data/
+/artifacts/
+/backend/data/
+/backend/artifacts/
+*.log
+.DS_Store
