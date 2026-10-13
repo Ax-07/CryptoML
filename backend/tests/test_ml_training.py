@@ -49,3 +49,23 @@ def test_evaluator_rejects_wrong_probs():
     one = evaluate(np.array([2]), np.array([[0.1, 0.1, 0.8]]))
     assert one["balanced_accuracy"] is None
     assert one["macro_f1"] is None
+
+
+def test_evaluator_normalizes_tiny_row_sum_roundoff():
+    import warnings
+
+    y = np.array([0, 1, 2])
+    p = np.array([
+        [0.2, 0.3, 0.5 + 2e-7],
+        [0.1, 0.8, 0.1 - 3e-7],
+        [0.2, 0.2, 0.6 + 1e-7],
+    ])
+    normalized = p / p.sum(axis=1, keepdims=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        score = evaluate(y, p)
+    assert not any("do not sum to one" in str(w.message) for w in caught)
+    assert score["log_loss"] == pytest.approx(evaluate(y, normalized)["log_loss"])
+    assert score["multiclass_brier"] == pytest.approx(
+        evaluate(y, normalized)["multiclass_brier"]
+    )
