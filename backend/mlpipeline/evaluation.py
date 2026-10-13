@@ -25,6 +25,10 @@ def evaluate(y_true: np.ndarray, probs: np.ndarray) -> dict:
         raise ValueError("Expected finite probabilities with shape (N, 3)")
     if (probs < 0).any() or (probs > 1).any() or not np.allclose(probs.sum(axis=1), 1, atol=1e-5):
         raise ValueError("Invalid probability distribution")
+    # sklearn can warn on LightGBM's tiny row-sum rounding differences.
+    # Only normalize probabilities already validated as within 1e-5 of one.
+    # Use the same normalized values for both log loss and multiclass Brier.
+    probs = probs / probs.sum(axis=1, keepdims=True)
     predicted = probs.argmax(axis=1)
     recall_values = precision_recall_fscore_support(
         y_true, predicted, labels=ALL_LABELS, zero_division=0
