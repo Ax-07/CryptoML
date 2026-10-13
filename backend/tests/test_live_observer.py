@@ -1,0 +1,77 @@
+"""Offline tests for a one-shot public Binance M5 observer."""
+from datetime import timedelta
+from unittest.mock import patch
+
+import pandas as pd
+import pytest
+
+from mlpipeline.live_observer import collect_current_closed_m5, observe_once
+from mlpipeline.trainer import DEFAULT_SYMBOLS
+
+
+NOW = pd.Timestamp("2026-10-13T13:12:02Z")
+CLOSE = NOW.floor("5min")
+
+
+class FakeClient:
+    def __init__(self, *, missing_latest=None, missing_internal=None):
+        self.missing_latest = missing_latest
+        self.missing_internal = missing_internal
+        self.calls = []
+
+    def fetch_rest(self, *, symbol, start, end, as_of):
+        self.calls.append((symbol, start, end, as_of))
+        opens = pd.date_range(
+            pd.Timestamp(start), pd.Timestamp(end), freq="5min", inclusive="left"
+        )
+        rows = []
+        for t in opens:
+            if symbol == self.missing_latest and t == opens[-1]:
+                continue
+            if symbol == self.missing_internal and t == opens[-15]:
+                continue
+            ms = int(t.timestamp() * 1000)
+            rows.append([
+                ms, "100.0", "101.0", "99.0", "100.5",
+                "20", ms + 299999, "2010", 200, "10", "1005", "0"
+            ])
+        return rows
+
+
+def test_public_rest_only_and_last_closed_window():
+    cli = FakeClient()
+    data = collect_current_closed_m5(cli, started_at=NOW)
+    assert set(data.symbol) == set(DEFAULT_SYMBOLS)
+    assert all(len(data[data.symbol.eq(sym)]) == 300 for sym in DEFAULT_SYMBOLS)
+    assert data.bar_close_at.max() == CLOSE
+    assert data.bar_open_at.max() == CLOSE - pd.Timedelta(minutes=5)
+    assert all(end == CLOSE.to_pydatetime() for _, _, end, _ in cli.calls)
+    assert all(end <= as_of for _, _, end, as_of in cli.calls)
+
+
+def test_missing_newest_candle_fails_closed():
+    with pytest.raises(ValueError, match="Missing latest"):
+        collect_current_closed_m5(
+            FakeClient(missing_latest="ETHUSDT"), started_at=NOW
+        )
+
+
+def test_check_only_does_not_load_model_or_write_any_signals():
+    cli = FakeClient()
+    with patch("mlpipeline.live_observer.datetime") as clock:
+        clock.now.return_value = NOW.to_pydatetime()
+        with patch("mlpipeline.live_observer.predict_snapshot") as pred:
+            result = observe_once(
+                cli, model_dir=None, log_dir=None, check_only=True
+            )
+    assert result["status"] == "PUBLIC_M5_CHECK_ONLY"
+    assert result["feature_rows"] == 5
+    pred.assert_not_called()
+
+
+def test_missing_internal_candle_fails_feature_warmup():
+    cli = FakeClient(missing_internal="BTCUSDT")
+    data = collect_current_closed_m5(cli, started_at=NOW)
+    with pytest.raises(ValueError, match="Insufficient contiguous"):
+        from mlpipeline.fresh_features import prepare_fresh_features
+        prepare_fresh_features(data, observed_at=NOW)
