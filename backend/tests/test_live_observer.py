@@ -1,5 +1,5 @@
 """Offline tests for a one-shot public Binance M5 observer."""
-from datetime import timedelta
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pandas as pd
@@ -9,7 +9,7 @@ from mlpipeline.live_observer import collect_current_closed_m5, observe_once
 from mlpipeline.trainer import DEFAULT_SYMBOLS
 
 
-NOW = pd.Timestamp("2026-10-13T13:12:02Z")
+NOW = pd.Timestamp(datetime.now(timezone.utc))
 CLOSE = NOW.floor("5min")
 
 
