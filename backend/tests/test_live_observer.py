@@ -1,4 +1,5 @@
 """Offline tests for a one-shot public Binance M5 observer."""
+import math
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -39,15 +40,25 @@ class FakeClient:
             pd.Timestamp(start), pd.Timestamp(end), freq="5min", inclusive="left"
         )
         rows = []
-        for t in opens:
+        for i, t in enumerate(opens):
             if symbol == self.missing_latest and t == opens[-1]:
                 continue
             if symbol == self.missing_internal and t == opens[-15]:
                 continue
+            # Non-flat, deterministic candles: RSI needs both rising and
+            # falling closes; otherwise 0/0 yields NaN by design.
+            close = 100.0 + 0.01 * i + 0.4 * math.sin(i / 5.0)
+            opening = close - 0.03 * math.cos(i / 3.0)
+            high = max(opening, close) + 0.1
+            low = min(opening, close) - 0.1
+            volume = 20.0 + i % 17
+            taker_buy_volume = 0.5 * volume
             ms = int(t.timestamp() * 1000)
             rows.append([
-                ms, "100.0", "101.0", "99.0", "100.5",
-                "20", ms + 299999, "2010", 200, "10", "1005", "0"
+                ms, str(opening), str(high), str(low), str(close),
+                str(volume), ms + 299999, str(volume * close),
+                200 + i % 23, str(taker_buy_volume),
+                str(taker_buy_volume * close), "0"
             ])
         return rows
 
