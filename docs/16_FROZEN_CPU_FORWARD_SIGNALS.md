@@ -41,3 +41,27 @@ Le programme capture lui-même l'heure UTC effective, exige une clôture M5 data
 - La capture des données live causales, le stockage fiable du flux, les vrais prix d'exécution (et pas seulement les prix M5 moyens), la journalisation durable en présence de pannes et les contraintes opérationnelles restent à construire.
 - Un modèle reconstruit à partir de données anciennes est figé sur l'état pré-juillet 2026. Ses performances sur des bougies fraîches post-septembre sont **inconnues**.
 - Pas d'activation de trading avec de l'argent réel sur ces seuls résultats.
+
+
+## 4. Adaptateur pour bougies M5 fraîchement clôturées
+
+Le module \`mlpipeline.fresh_features\` prépare **les 30 features originales** à partir d'un fichier Parquet externe contenant au moins 240 bougies M5 **consécutives par crypto**. Il applique les mêmes fonctions historiques \`build_symbol_features\` et \`join_market_context\`, notamment pour le contexte BTC/ETH à la même clôture. Il refuse :
+- une clôture non synchronisée sur les cinq cryptos ;
+- une bougie en cours, absente, décalée de 5 minutes ou contenant des prix invalides ;
+- une ingestion antérieure à la clôture ou postérieure à l'heure de capture ;
+- un contexte technique insuffisant pour calculer toutes les features ;
+- les colonnes d'étiquettes calculées à partir de données futures.
+
+Format des colonnes : \`symbol,bar_open_at,bar_close_at,is_final,ingested_at,open,high,low,close,volume_base,volume_quote,trade_count,taker_buy_volume_base,taker_buy_volume_quote\`. Les trois horodatages sont explicitement UTC, conformément au schéma d'ingestion. Toutes les cryptos (\`BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT, ADAUSDT\`) sont requises. Le fichier est un **lot récemment collecté**, pas les 24 mois déjà stockés.
+
+Exécuter **seulement après mise en place de la collecte causale** et sur un vrai lot de données de marché :
+
+\`\`\`powershell
+& "E:\cryptoML\backend\.venv\Scripts\python.exe" -m mlpipeline.fresh_features \`
+  --closed-candles "E:\cryptoML-walkforward-results\fresh_closed_m5.parquet" \`
+  --output "E:\cryptoML-walkforward-results\current_closed_features.parquet"
+\`\`\`
+
+Puis appeler \`mlpipeline.forward_signals\` dans les cinq minutes suivant la clôture de la bougie. Les deux étapes doivent fonctionner **sur le même horodatage M5** ; le logger effectue sa propre vérification de fraîcheur, sans mode backfill.
+
+**Limite non résolue** : la connexion à un flux d'ingestion live authentique, horodaté et durable, n'existe pas encore dans ces scripts. Ils ne doivent pas être utilisés pour transformer des fichiers historiques en prédictions soi-disant temps réel.
