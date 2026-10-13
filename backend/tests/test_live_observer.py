@@ -5,12 +5,26 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+from ingestion.schema import normalize_klines as real_normalize_klines
+from mlpipeline.fresh_features import prepare_fresh_features
 from mlpipeline.live_observer import collect_current_closed_m5, observe_once
 from mlpipeline.trainer import DEFAULT_SYMBOLS
 
 
 NOW = pd.Timestamp(datetime.now(timezone.utc))
 CLOSE = NOW.floor("5min")
+
+
+def normalize_at_test_clock(*args, **kwargs):
+    """Fake the REST reception clock, not the production leakage guards.
+
+    The real normalizer stamps pd.Timestamp.now(UTC). During a frozen-clock
+    test, that real stamp can occur AFTER the mocked observed_at timestamp.
+    Simulate consistent reception timestamps in the *test data* instead.
+    """
+    result = real_normalize_klines(*args, **kwargs)
+    result["ingested_at"] = NOW
+    return result
 
 
 class FakeClient:
@@ -58,12 +72,14 @@ def test_missing_newest_candle_fails_closed():
 
 def test_check_only_does_not_load_model_or_write_any_signals():
     cli = FakeClient()
-    with patch("mlpipeline.live_observer.datetime") as clock:
+    with patch("mlpipeline.live_observer.datetime") as clock, \
+            patch("mlpipeline.live_observer.normalize_klines",
+                  side_effect=normalize_at_test_clock), \
+            patch("mlpipeline.live_observer.predict_snapshot") as pred:
         clock.now.return_value = NOW.to_pydatetime()
-        with patch("mlpipeline.live_observer.predict_snapshot") as pred:
-            result = observe_once(
-                cli, model_dir=None, log_dir=None, check_only=True
-            )
+        result = observe_once(
+            cli, model_dir=None, log_dir=None, check_only=True
+        )
     assert result["status"] == "PUBLIC_M5_CHECK_ONLY"
     assert result["feature_rows"] == 5
     pred.assert_not_called()
@@ -71,7 +87,18 @@ def test_check_only_does_not_load_model_or_write_any_signals():
 
 def test_missing_internal_candle_fails_feature_warmup():
     cli = FakeClient(missing_internal="BTCUSDT")
-    data = collect_current_closed_m5(cli, started_at=NOW)
+    with patch("mlpipeline.live_observer.normalize_klines",
+               side_effect=normalize_at_test_clock):
+        data = collect_current_closed_m5(cli, started_at=NOW)
     with pytest.raises(ValueError, match="Insufficient contiguous"):
-        from mlpipeline.fresh_features import prepare_fresh_features
+        prepare_fresh_features(data, observed_at=NOW)
+
+
+def test_future_ingestion_timestamp_remains_strictly_rejected():
+    with patch("mlpipeline.live_observer.normalize_klines",
+               side_effect=normalize_at_test_clock):
+        data = collect_current_closed_m5(FakeClient(), started_at=NOW)
+    # If even one candle claims to have arrived AFTER observed_at, fail closed.
+    data.loc[data.index[0], "ingested_at"] = NOW + pd.Timedelta(seconds=1)
+    with pytest.raises(ValueError, match="Future candle or future ingestion"):
         prepare_fresh_features(data, observed_at=NOW)
