@@ -1,7 +1,8 @@
 """Causal, optional P2 market-structure features; NOT part of frozen features_v1.
 
-A pivot at index p needs LEFT=2 prior and RIGHT=2 *later closed* bars.
-It is FIRST KNOWN at index p+2; no negative shift or centered rolling.
+A pivot at index p needs LEFT=2 prior and confirmation_bars=1/2/3
+later closed bars. It is FIRST KNOWN at p+confirmation_bars.
+The default 2-bar calculation reproduces the original R2 experiment.
 All calculations restart after any noncontiguous M5 bar; no fabricated candles.
 This is a mechanical operational definition, not a canonical BOS/CHoCH signal.
 """
@@ -24,7 +25,7 @@ STRUCTURE_COLUMNS = (
 )
 
 
-def _segment_structure(bars: pd.DataFrame) -> pd.DataFrame:
+def _segment_structure(bars: pd.DataFrame, *, confirmation_bars: int = RIGHT) -> pd.DataFrame:
     """Use only bar-close information known at each row; each segment isolated."""
     high = bars["high"].astype(float).reset_index(drop=True)
     low = bars["low"].astype(float).reset_index(drop=True)
@@ -34,18 +35,20 @@ def _segment_structure(bars: pd.DataFrame) -> pd.DataFrame:
             or (close <= 0).any()):
         raise ValueError("Invalid OHLC for structure features")
 
-    # The candidate pivot is from exactly TWO already closed candles earlier.
-    # Compare its level to 2 older AND 2 newer candles, including current t.
-    ph = high.shift(RIGHT)
-    pl = low.shift(RIGHT)
-    confirmed_h = (
-        ph.gt(high.shift(0)) & ph.gt(high.shift(1))
-        & ph.gt(high.shift(3)) & ph.gt(high.shift(4))
-    )
-    confirmed_l = (
-        pl.lt(low.shift(0)) & pl.lt(low.shift(1))
-        & pl.lt(low.shift(3)) & pl.lt(low.shift(4))
-    )
+    # At time t=p+r, all comparisons are to bars <=t: two older
+    # (p-2,p-1) and r already-closed newer bars (p+1..p+r).
+    # Strict comparison means ties never create a pivot.
+    r = confirmation_bars
+    ph = high.shift(r)
+    pl = low.shift(r)
+    confirmed_h = pd.Series(True, index=high.index)
+    confirmed_l = pd.Series(True, index=low.index)
+    for offset in range(r):
+        confirmed_h &= ph.gt(high.shift(offset))
+        confirmed_l &= pl.lt(low.shift(offset))
+    for offset in range(r + 1, r + LEFT + 1):
+        confirmed_h &= ph.gt(high.shift(offset))
+        confirmed_l &= pl.lt(low.shift(offset))
     new_h = ph.where(confirmed_h)
     new_l = pl.where(confirmed_l)
     # At event t, compare against the prior CONFIRMED pivot of the same kind.
@@ -99,15 +102,20 @@ def _segment_structure(bars: pd.DataFrame) -> pd.DataFrame:
     })
 
 
-def build_market_structure_features(candles: pd.DataFrame) -> pd.DataFrame:
+def build_market_structure_features(
+    candles: pd.DataFrame, *, confirmation_bars: int = RIGHT,
+) -> pd.DataFrame:
     """Twelve new columns at closed M5 t. The first confirmed pivots are NaN.
 
     No label reading, no future prices, no ADA access. Strict pivot ties are
-    ignored to avoid arbitrary ordering. A pivot at p appears only at p+2.
+    ignored to avoid arbitrary ordering. A pivot at p first appears at
+    p+confirmation_bars (default 2). Only 1, 2, 3 are predeclared.
     BOS = close crossing last known high in bullish state (or low in bearish).
     CHoCH = same break AGAINST the immediately previous confirmed structure.
     No ambiguous transition is assigned a BOS/CHoCH; zero means no signal.
     """
+    if type(confirmation_bars) is not int or confirmation_bars not in (1, 2, 3):
+        raise ValueError("confirmation_bars must be one of 1, 2 or 3")
     required = {"symbol","bar_open_at","bar_close_at","high","low","close"}
     if not required.issubset(candles):
         raise ValueError("Missing structure OHLC columns")
@@ -125,7 +133,7 @@ def build_market_structure_features(candles: pd.DataFrame) -> pd.DataFrame:
     bars["_segment"] = bars.bar_open_at.diff().ne(FIVE_MINUTES).cumsum()
     chunks = []
     for _, group in bars.groupby("_segment", sort=False):
-        chunk = _segment_structure(group)
+        chunk = _segment_structure(group, confirmation_bars=confirmation_bars)
         chunk.index=group.index
         chunks.append(chunk)
     calculated = pd.concat(chunks,axis=0).sort_index()
