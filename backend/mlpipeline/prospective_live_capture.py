@@ -54,6 +54,17 @@ def fetch_latest_closed(symbol: str, *, now: datetime) -> pd.DataFrame:
 def latest_common_features(candles: dict[str,pd.DataFrame], *,now:datetime):
     if set(candles)!=set(ASSETS):
         raise ValueError("Four seen assets only")
+    # Guard the raw CLOSED-bar timestamps before any BTC/ETH-context join.
+    # Otherwise a lagging asset first surfaces as a misleading missing-feature
+    # error rather than the real cross-asset synchronization failure.
+    last_closes = []
+    for sym in ASSETS:
+        frame = candles[sym]
+        if frame.empty or "bar_close_at" not in frame.columns:
+            raise ValueError(f"Missing closed M5 candles: {sym}")
+        last_closes.append(pd.Timestamp(frame["bar_close_at"].iloc[-1]))
+    if len(set(last_closes)) != 1:
+        raise ValueError("Candles not closed and timestamp-aligned across assets")
     features={sym:build_symbol_features(candles[sym]) for sym in ASSETS}
     rows=[]
     for sym in ASSETS:
