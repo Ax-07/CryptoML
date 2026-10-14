@@ -103,30 +103,56 @@ def _load_packs(activation:dict):
 
 
 def make_forecasts(rows:pd.DataFrame, packs:dict, activation:dict)->dict:
+    """Retain BOTH policies on each M5, even inside the primary UTC period."""
     X=feature_matrix(rows)
-    hour=int(rows.bar_close_at.iloc[0].hour)
-    key="12-17_UTC" if 12<=hour<18 else "all_day_UTC"
     result={}
     for name in ("H2","H6"):
         pack=packs[name]
         probs=_class_probs(pack["estimator"],X)
         prior=np.asarray(pack["train_prior_counts"],dtype=int)
         predicted,margins=decision_and_margin(probs,prior,alpha=1.0)
-        cutoff=activation["threshold_policy"]["thresholds"][name][key]
-        result[name]={
-            str(sym):{
+        thresholds=activation["threshold_policy"]["thresholds"][name]
+        result[name]={}
+        for idx,sym in enumerate(rows.symbol):
+            eligible=int(predicted[idx])!=1
+            policies={
+                key:{
+                    "threshold":float(cutoff),
+                    "selected_direction":int(predicted[idx]) if eligible and margins[idx]>=cutoff else None,
+                    "in_primary_utc_cohort":bool(12<=rows.bar_close_at.iloc[idx].hour<18),
+                }
+                for key,cutoff in thresholds.items()
+            }
+            result[name][str(sym)]={
                 "raw_probabilities_down_neutral_up":[float(x) for x in probs[idx]],
                 "raw_decision":int(predicted[idx]),
                 "margin":float(margins[idx]),
-                "threshold":float(cutoff),
-                "selected_direction":int(predicted[idx]) if predicted[idx]!=1 and margins[idx]>=cutoff else None,
-                "policy_cohort":key,
-            } for idx,sym in enumerate(rows.symbol)
-        }
+                "policies":policies,
+            }
     return result
 
 
-def append_one_batch(root:Path, *, close:datetime, now:datetime, forecasts:dict):
+def _check_forecasts(forecasts:dict):
+    if set(forecasts)!={"H2","H6"} or any(
+        set(forecasts[h])!=set(ASSETS) for h in forecasts
+    ):
+        raise ValueError("Invalid aligned four-asset forecasts")
+    for h in ("H2","H6"):
+        for sym in ASSETS:
+            row=forecasts[h][sym]
+            if set(row.get("policies",{}))!={"12-17_UTC","all_day_UTC"}:
+                raise ValueError("Both pre-registered selection policies required")
+
+
+def append_one_batch(root:Path, *, close:datetime, now:datetime,
+                     forecasts:dict, anchor=None):
+    """Single-writer append; external attestation REQUIRED and verified.
+
+    A lock belongs to caller; this function also uses a cross-process lock.
+    Every journal line links to previous content and embeds an independently
+    signed digest of the current unsigned core. No backfill/retries of older M5.
+    """
+    from mlpipeline.prospective_journal import exclusive_writer, verify_chain
     registration=verify(root)
     activation=verify_activation(root)
     if not (_date(registration["prospective_start_utc"])<=now
@@ -134,71 +160,68 @@ def append_one_batch(root:Path, *, close:datetime, now:datetime, forecasts:dict)
         raise ValueError("Not inside frozen forward collection window")
     if close>=now or not (0<=(now-close).total_seconds()<MAX_ARRIVAL_SECONDS):
         raise ValueError("Stale/retroactive bar: cannot append")
-    if set(forecasts)!={"H2","H6"} or any(set(forecasts[h])!=set(ASSETS) for h in forecasts):
-        raise ValueError("Invalid aligned 4-asset forecasts")
-    path=root/"predictions.jsonl"
-    previous="0"*64
-    last=None
-    if path.exists():
-        with path.open("rb") as f:
-            for line in f:
-                entry=json.loads(line)
-                signed={k:v for k,v in entry.items() if k!="entry_sha256"}
-                if (entry["previous_sha256"]!=previous
-                        or _sha(_canonical(signed))!=entry["entry_sha256"]):
-                    raise ValueError("Local append-only chain corruption")
-                if last is not None and _date(entry["bar_close_utc"])<=last:
-                    raise ValueError("Journal timestamps not increasing")
-                last=_date(entry["bar_close_utc"])
-                previous=entry["entry_sha256"]
-    if last is not None and close<=last:
-        raise ValueError("Duplicate/older bar: refusing backfill")
-    record={
-        "bar_close_utc":_iso(close),
-        "recorded_at_utc":_iso(now),
-        "activation_sha256":(root/"activation.sha256").read_text("ascii").strip(),
-        "previous_sha256":previous,
-        "forecasts":forecasts,
-    }
-    record["entry_sha256"]=_sha(_canonical(record))
-    path.parent.mkdir(parents=True,exist_ok=True)
-    # Single-writer only. Must run once per five minutes, not concurrent.
-    fd=os.open(str(path),os.O_APPEND|os.O_CREAT|os.O_WRONLY,0o600)
-    try:
+    _check_forecasts(forecasts)
+    if anchor is None:
+        raise RuntimeError("External trusted timestamp anchor required; no local fallback")
+    with exclusive_writer(root):
+        path=root/"predictions.jsonl"
+        previous,last=verify_chain(path)
+        if last is not None and close<=last:
+            raise ValueError("Duplicate/older bar: refusing backfill")
+        core={
+            "bar_close_utc":_iso(close),
+            "recorded_at_utc":_iso(now),
+            "protocol_sha256":(root/"protocol.sha256").read_text("ascii").strip(),
+            "activation_sha256":(root/"activation.sha256").read_text("ascii").strip(),
+            "previous_sha256":previous,
+            "forecasts":forecasts,
+        }
+        receipt=anchor.attest(core,close=close)
+        anchor.verify(receipt,core,close=close)
+        record={**core,"external_receipt":receipt}
+        record["entry_sha256"]=_sha(_canonical(record))
+        actual=datetime.now(timezone.utc)
+        # Genuine runs must never append a forecast after the M5 deadline.
+        # Test callers supplying a synthetic clock cannot bypass this guard:
+        # they need an explicitly injected clock in the journal tests.
+        if not 0<=(actual-close).total_seconds()<MAX_ARRIVAL_SECONDS:
+            raise ValueError("Forecast/attestation completed too late")
+        fd=os.open(str(path),os.O_APPEND|os.O_CREAT|os.O_WRONLY,0o600)
         with os.fdopen(fd,"ab") as stream:
             stream.write(_canonical(record))
             stream.flush()
             os.fsync(stream.fileno())
-    except BaseException:
-        raise
-    return record
+        return record
 
 
-def capture_once(root:Path):
+def capture_once(root:Path, *, anchor):
     registration=verify(root)
     activation=verify_activation(root)
     now=datetime.now(timezone.utc)
     if not (_date(registration["prospective_start_utc"])<=now
             <_date(registration["prospective_end_exclusive_utc"])):
         raise ValueError("Not within collection window")
-    # System clock and network latency must be independently monitored.
     packs=_load_packs(activation)
     candles={sym:fetch_latest_closed(sym,now=now) for sym in ASSETS}
     stamp=datetime.now(timezone.utc)
     rows,close=latest_common_features(candles,now=stamp)
     forecasts=make_forecasts(rows,packs,activation)
-    # Recheck wallclock before append; prevents late inference from appearing on time.
     actual=datetime.now(timezone.utc)
-    record=append_one_batch(root,close=close,now=actual,forecasts=forecasts)
-    print("Local forecast batch captured",record["bar_close_utc"],record["entry_sha256"])
-    print("WARNING: independent timestamp anchoring is NOT implemented")
+    record=append_one_batch(root,close=close,now=actual,
+                            forecasts=forecasts,anchor=anchor)
+    print("Independently anchored M5 batch",record["bar_close_utc"],
+          record["entry_sha256"],flush=True)
 
 
 def main():
-    p=argparse.ArgumentParser(description="P3 live-only single M5 batch (NO scoring/backfill)")
+    from mlpipeline.prospective_anchor import TrustedAnchor
+    p=argparse.ArgumentParser(description="P3 anchored live-only M5 (NO scoring/backfill)")
     p.add_argument("--root",type=Path,required=True)
+    p.add_argument("--anchor-url",required=True)
+    p.add_argument("--anchor-public-key",type=Path,required=True)
     args=p.parse_args()
-    capture_once(args.root)
+    anchor=TrustedAnchor(url=args.anchor_url,public_key_path=args.anchor_public_key)
+    capture_once(args.root,anchor=anchor)
 
 
 if __name__=="__main__":
