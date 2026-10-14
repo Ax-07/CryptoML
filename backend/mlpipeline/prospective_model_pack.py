@@ -43,6 +43,30 @@ SEED = 42
 N_ESTIMATORS = 150
 
 
+def exclude_july_boundary_close(frame: pd.DataFrame, *, period: str) -> pd.DataFrame:
+    """Drop ONLY the June candle closing exactly at the July cutoff.
+
+    Binance M5 partitions are assigned by bar_open_at. Thus the
+    2026-06-30 23:55 UTC candle belongs to June but bar_close_at is
+    precisely 2026-07-01 00:00 UTC (the exclusive P3 history cutoff).
+    Any other crossing is a data-integrity failure, never silently dropped.
+    """
+    crossing = frame["bar_close_at"].ge(CUTOFF)
+    if not crossing.any():
+        return frame
+    legitimate = (
+        period == "2026-06"
+        and int(crossing.sum()) == 1
+        and frame.loc[crossing, "bar_open_at"].eq(
+            CUTOFF - pd.Timedelta(minutes=5)
+        ).all()
+        and frame.loc[crossing, "bar_close_at"].eq(CUTOFF).all()
+    )
+    if not legitimate:
+        raise AssertionError("Historical reserve crossover beyond expected June boundary")
+    return frame.loc[~crossing].copy()
+
+
 def load_clean_historic(store: CandleStore, *, verify_hashes: bool = True):
     """Only whole December 2025--June 2026 P0 month partitions, seen assets."""
     candles, manifests = {}, []
@@ -73,8 +97,9 @@ def load_clean_historic(store: CandleStore, *, verify_hashes: bool = True):
                 raise ValueError(f"{symbol}: unfinalized input")
             for col in ("bar_open_at", "bar_close_at"):
                 frame[col] = pd.to_datetime(frame[col], utc=True)
-            if not frame.bar_close_at.lt(CUTOFF).all():
-                raise AssertionError("Historical reserve crossover")
+            frame = exclude_july_boundary_close(frame, period=part["period"])
+            if frame.empty or not frame.bar_close_at.lt(CUTOFF).all():
+                raise AssertionError("No eligible strictly pre-July history")
             frame["symbol"] = symbol
             frames.append(frame)
             manifests.append(part)
