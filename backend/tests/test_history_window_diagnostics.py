@@ -11,7 +11,7 @@ from mlpipeline.walkforward import make_walk_forward_folds
 
 
 def synthetic_examples():
-    dates = pd.date_range("2025-01-01T00:05:00Z", periods=23 * 288, freq="5min")
+    dates = pd.date_range("2025-01-01T00:05:00Z", periods=30 * 288, freq="5min")
     frames = []
     for i, symbol in enumerate(("BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT")):
         rng = np.random.default_rng(110 + i)
