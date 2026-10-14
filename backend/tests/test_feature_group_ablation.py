@@ -64,7 +64,7 @@ def test_one_fold_training_runs_with_changed_feature_columns():
         for col in FEATURE_COLUMNS:
             frame[col] = rng.normal(size=n).astype("float32")
         return frame
-    train, early, check = part(600), part(150), part(120)
+    train, early, check = part(600), part(152), part(120)
     full = _train_and_evaluate(
         train, early, check, horizon=2, variant="full",
         n_estimators=20, seed=42,
