@@ -165,7 +165,7 @@ def append_one_batch(root:Path, *, close:datetime, now:datetime,
         raise RuntimeError("External trusted timestamp anchor required; no local fallback")
     with exclusive_writer(root):
         path=root/"predictions.jsonl"
-        previous,last=verify_chain(path)
+        previous,last=verify_chain(path,anchor=anchor)
         if last is not None and close<=last:
             raise ValueError("Duplicate/older bar: refusing backfill")
         core={
