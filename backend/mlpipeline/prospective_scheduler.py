@@ -60,7 +60,7 @@ def run(root: Path, *, anchor: TrustedAnchor) -> None:
             if not claim_attempt(root,close=bar_close,now=datetime.now(timezone.utc)):
                 print(f"SKIPPED already attempted M5 close_epoch={due}",flush=True)
                 continue
-            capture_once(root,anchor=anchor)
+            capture_once(root,anchor=anchor,expected_close=bar_close)
         except Exception as exc:
             print(f"MISSING P3 candle close_epoch={due}: "
                   f"{type(exc).__name__}: {exc}",flush=True)
