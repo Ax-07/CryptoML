@@ -56,18 +56,51 @@ def verify_receipt(
     return signed
 
 
-class TrustedAnchor:
-    """Operator-configured external HTTPS signer; no local/fallback signing."""
+def _remote_https_url(value: str, *, allow_digest_placeholder: bool = False) -> str:
+    """Reject local endpoints/credentials; never treat a self-hosted lab as independent."""
+    from urllib.parse import urlsplit
+    from ipaddress import ip_address
 
-    def __init__(self, *, url: str, public_key_path: Path):
-        host = urllib.parse.urlsplit(url)
-        if (host.scheme != "https" or not host.hostname or host.username
-                or host.password or host.fragment or
-                host.hostname.lower() in {"localhost", "127.0.0.1", "::1"}):
-            raise ValueError("HTTPS independent remote timestamp service required")
-        self.url = url
+    if not isinstance(value, str) or not value:
+        raise ValueError("Independent remote HTTPS URL required")
+    if allow_digest_placeholder:
+        if value.count("{digest}") != 1:
+            raise ValueError("Lookup URL must contain exactly one {digest} placeholder")
+        parsed_value = value.replace("{digest}", "a" * 64)
+    else:
+        if "{" in value or "}" in value:
+            raise ValueError("Unexpected URL placeholder")
+        parsed_value = value
+    parsed = urlsplit(parsed_value)
+    if (parsed.scheme != "https" or not parsed.hostname
+            or parsed.username or parsed.password or parsed.fragment):
+        raise ValueError("External anchor must be a clean HTTPS endpoint")
+    host = parsed.hostname.lower().rstrip(".")
+    if host == "localhost" or host.endswith(".localhost") or host.endswith(".local"):
+        raise ValueError("Local signing services cannot establish independence")
+    try:
+        ip_address(host)
+        raise ValueError("Use the independently operated provider's DNS name")
+    except ValueError as exc:
+        if str(exc).startswith("Use the independently"):
+            raise
+    return value
+
+
+class TrustedAnchor:
+    """Remote HTTPS signer and independently retrievable immutable receipt.
+
+    The external operator must additionally prove real-world independence,
+    clock integrity and append-only retention; software cannot certify this.
+    """
+
+    def __init__(self, *, url: str, lookup_url_template: str,
+                 public_key_path: Path):
+        self.url = _remote_https_url(url)
+        self.lookup_url_template = _remote_https_url(
+            lookup_url_template, allow_digest_placeholder=True
+        )
         self.public_key_pem = public_key_path.read_bytes()
-        # Key type validated up front before any API call.
         from cryptography.hazmat.primitives.serialization import load_pem_public_key
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
         key = load_pem_public_key(self.public_key_pem)
@@ -90,10 +123,36 @@ class TrustedAnchor:
         with urllib.request.urlopen(req, timeout=12) as response:
             if response.status != 200:
                 raise ValueError("External timestamp provider did not accept evidence")
-            raw = response.read(16_384)
+            raw = response.read(16_385)
+        if len(raw) > 16_384:
+            raise ValueError("Oversized anchor receipt")
         receipt = json.loads(raw)
         self.verify(receipt, core, close=close)
+        # A signed response alone could be transient or wholly fabricated.
+        # Require independent retrieval of exactly the same proof before use.
+        self.verify_remote_retrieval(receipt, core, close=close)
         return receipt
+
+    def verify_remote_retrieval(self, receipt: dict, core: dict, *,
+                                close: datetime) -> dict:
+        digest = _sha(_canonical(core))
+        lookup_url = self.lookup_url_template.replace("{digest}", digest)
+        req = urllib.request.Request(
+            lookup_url,
+            method="GET",
+            headers={"Accept": "application/json", "Cache-Control": "no-store"},
+        )
+        with urllib.request.urlopen(req, timeout=12) as response:
+            if response.status != 200:
+                raise ValueError("External proof not retrievable")
+            raw = response.read(16_385)
+        if len(raw) > 16_384:
+            raise ValueError("Oversized external proof")
+        looked_up = json.loads(raw)
+        self.verify(looked_up, core, close=close)
+        if looked_up != receipt:
+            raise ValueError("Externally retrieved proof differs from posted receipt")
+        return looked_up
 
     def verify(self, receipt: dict, core: dict, *, close: datetime) -> dict:
         return verify_receipt(receipt, core, self.public_key_pem, close=close)
