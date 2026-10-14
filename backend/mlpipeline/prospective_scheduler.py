@@ -14,7 +14,8 @@ from pathlib import Path
 from mlpipeline.prospective_anchor import TrustedAnchor
 from mlpipeline.prospective_live_capture import capture_once
 from mlpipeline.prospective_protocol import _date, verify
-from mlpipeline.prospective_journal import exclusive_writer
+from mlpipeline.prospective_attempts import claim_attempt
+from mlpipeline.prospective_protocol import verify_activation
 
 INTERVAL_SECONDS=300
 START_DELAY_SECONDS=15
@@ -34,6 +35,7 @@ def due_bar_epoch(now: datetime) -> int | None:
 
 def run(root: Path, *, anchor: TrustedAnchor) -> None:
     registration=verify(root)
+    verify_activation(root)  # fail before any attempt if packs were never locked
     start=_date(registration["prospective_start_utc"])
     end=_date(registration["prospective_end_exclusive_utc"])
     last_attempted=None
@@ -53,6 +55,11 @@ def run(root: Path, *, anchor: TrustedAnchor) -> None:
             continue
         last_attempted=due
         try:
+            from datetime import datetime as _datetime
+            bar_close=_datetime.fromtimestamp(due,tz=timezone.utc)
+            if not claim_attempt(root,close=bar_close,now=datetime.now(timezone.utc)):
+                print(f"SKIPPED already attempted M5 close_epoch={due}",flush=True)
+                continue
             capture_once(root,anchor=anchor)
         except Exception as exc:
             print(f"MISSING P3 candle close_epoch={due}: "
