@@ -72,9 +72,12 @@ def main():
     p=argparse.ArgumentParser(description="P3 M5 scheduler; no backfill or scoring")
     p.add_argument("--root",type=Path,required=True)
     p.add_argument("--anchor-url",required=True)
+    p.add_argument("--anchor-lookup-url",required=True,
+                   help="HTTPS GET URL with {digest} placeholder")
     p.add_argument("--anchor-public-key",type=Path,required=True)
     args=p.parse_args()
-    anchor=TrustedAnchor(url=args.anchor_url,public_key_path=args.anchor_public_key)
+    anchor=TrustedAnchor(url=args.anchor_url,lookup_url_template=args.anchor_lookup_url,
+                         public_key_path=args.anchor_public_key)
     run(args.root,anchor=anchor)
 
 
