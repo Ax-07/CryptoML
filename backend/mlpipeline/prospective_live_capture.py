@@ -194,7 +194,7 @@ def append_one_batch(root:Path, *, close:datetime, now:datetime,
         return record
 
 
-def capture_once(root:Path, *, anchor):
+def capture_once(root:Path, *, anchor, expected_close=None):
     registration=verify(root)
     activation=verify_activation(root)
     now=datetime.now(timezone.utc)
@@ -205,6 +205,8 @@ def capture_once(root:Path, *, anchor):
     candles={sym:fetch_latest_closed(sym,now=now) for sym in ASSETS}
     stamp=datetime.now(timezone.utc)
     rows,close=latest_common_features(candles,now=stamp)
+    if expected_close is not None and close != expected_close:
+        raise ValueError("Exchange returned previous/different M5 than claimed UTC slot")
     forecasts=make_forecasts(rows,packs,activation)
     actual=datetime.now(timezone.utc)
     record=append_one_batch(root,close=close,now=actual,
