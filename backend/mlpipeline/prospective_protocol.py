@@ -196,13 +196,14 @@ def _validated_thresholds(obj: dict) -> dict:
 
 
 def activate(root: Path, *, model_h2: Path, model_h6: Path,
-             threshold_file: Path, now: datetime | None = None) -> dict:
+             threshold_file: Path, now: datetime | None = None,
+             verifier=None) -> dict:
     """Lock model hashes and policy; NO deserialization, inference or scoring.
 
     Caller must independently verify model provenance and an append-only
     live prediction pipeline. This gate is NOT an online evaluation.
     """
-    payload = verify(root)
+    payload = (verifier or verify)(root)
     now = _utc(now or datetime.now(timezone.utc))
     if now >= _date(payload["prospective_start_utc"]):
         raise ValueError("Too late to freeze models: prospective start reached")
@@ -257,8 +258,8 @@ def activate(root: Path, *, model_h2: Path, model_h6: Path,
     return activation
 
 
-def verify_activation(root: Path) -> dict:
-    registration = verify(root)
+def verify_activation(root: Path, *, verifier=None) -> dict:
+    registration = (verifier or verify)(root)
     raw = (root / "activation.json").read_bytes()
     expected = (root / "activation.sha256").read_text("ascii").strip()
     if _sha(raw) != expected:
