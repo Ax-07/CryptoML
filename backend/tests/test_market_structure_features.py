@@ -42,7 +42,12 @@ def test_pivot_confirmed_only_two_closed_bars_after_candidate():
     highs=[8,9,12,10,8,9,13,9,8,9,7,8]
     x=build_market_structure_features(bars(highs))
     assert pd.isna(x.loc[3,"structure_distance_swing_high"])
-    assert x.loc[4,"structure_age_swing_high"]==pytest.approx(2/48)
+    # Age is measured from CONFIRMATION at p+2, not from pivot p.
+    # At confirmation time the feature first becomes usable, so age is zero.
+    assert x.loc[4,"structure_age_swing_high"]==pytest.approx(0.0)
+    assert x.loc[5,"structure_age_swing_high"]==pytest.approx(1/48)
+    # A second confirmed high at index 8 resets its confirmation age.
+    assert x.loc[8,"structure_age_swing_high"]==pytest.approx(0.0)
     assert x.loc[7,"structure_hh"]==0
     assert x.loc[8,"structure_hh"]==1
     # A new higher swing is not retrospectively visible at its pivot index 6.
