@@ -53,15 +53,16 @@ def _audit_metrics(cells: list[dict]) -> dict:
     for side in ("DOWN", "UP"):
         predicted = sum(int(c["per_direction"][side]["predicted"]) for c in cells)
         correct = sum(int(c["per_direction"][side]["correct"]) for c in cells)
-        true_support = sum(int(c["per_direction"][side]["support"]) for c in cells)
-        if predicted < correct or true_support < correct:
-            raise ValueError("Impossible confusion support")
+        if correct < 0 or predicted < correct:
+            raise ValueError("Impossible directional prediction/correct counts")
+        # Actual directional_metrics() exports predicted, correct,
+        # precision and recall_of_true_class, but NOT true-class support.
+        # Aggregated recall cannot be reconstructed reliably from a rounded
+        # or undefined per-fold recall: do not invent a denominator.
         direction[side] = {
             "predicted": predicted,
             "correct": correct,
             "precision": correct / predicted if predicted else None,
-            "recall_on_all_check_rows":correct / true_support if true_support else None,
-            "truth_support":true_support,
         }
     if (sum(x["predicted"] for x in direction.values()) != selected or
             sum(x["correct"] for x in direction.values()) != hits):
