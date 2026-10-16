@@ -101,7 +101,7 @@ def _parse_utc_column(frame:pd.DataFrame, name:str):
     if stamps.isna().any():
         raise ValueError(f"Null timestamp in {name}")
     # A CSV with naive dates is not acceptable, even if pandas can coerce it.
-    if not frame[name].astype(str).str.contains(r"(Z|[+-]\d\d:\d\d)$",regex=True).all():
+    if not frame[name].astype(str).str.contains(r"(?:Z|[+-]\d\d:\d\d)$",regex=True).all():
         raise ValueError(f"Explicit UTC offset required in {name}")
     return stamps
 
