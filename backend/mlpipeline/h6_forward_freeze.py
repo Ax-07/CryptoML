@@ -26,7 +26,7 @@ from mlpipeline.confidence_diagnostics import decision_and_margin
 from mlpipeline.coverage_matched_diagnostics import threshold_for_target
 from mlpipeline.dataset import load_symbol, manifest_fingerprint
 from mlpipeline.expanded_horizon_diagnostics import (
-    SEEN_SYMBOLS, build_shared_examples, common_folds, shared_partitions,
+    SEEN_SYMBOLS, build_shared_examples, common_folds,
 )
 from mlpipeline.features import FEATURE_COLUMNS, FEATURE_SCHEMA_VERSION
 from mlpipeline.h6_forward_candidate_evaluation import (
@@ -91,24 +91,21 @@ def make_frozen_models(candles, *,n_estimators=150,seed=42,now=None):
         raise ValueError("Freezing must happen before 2026-10-17T00:00:00Z")
     fold,stop,tuning_end,sealed_start=predeclared_last_fold(candles)
     shared=eligible_precheck_examples(candles,tuning_end)
-    partitions,bounds=shared_partitions(shared,fold)
     t,mature=shared.bar_close_at,shared.label_mature_at
+    train=shared.loc[t.ge(fold.train_start)&t.lt(fold.validation_start)
+                     &mature.lt(fold.validation_start)]
+    early=shared.loc[t.ge(fold.validation_start)&t.lt(stop)&mature.lt(stop)]
     tuning=shared.loc[t.ge(stop)&t.lt(tuning_end)&mature.lt(tuning_end)]
     if len(tuning)<100:
         raise ValueError("Too few tuning examples")
-    for rows in (*partitions.values(),tuning):
+    for rows in (train,early,tuning):
         if set(rows.symbol)!=set(SEEN_SYMBOLS):
             raise ValueError("Four seen assets required in every partition")
-    if partitions["validation_check"].empty:
-        # The clipped dataset cannot contain check rows by design.
-        pass
-    else:
+    if shared.bar_close_at.ge(tuning_end).any():
         raise AssertionError("Held-out validation check must never be constructed")
     trained={}
     metadata={}
     for variant,cols in columns_for_models().items():
-        train=partitions["train"]
-        early=partitions["early_stopping"]
         y_train=train.target_h6.to_numpy(dtype=int)
         y_early=early.target_h6.to_numpy(dtype=int)
         counts=np.bincount(y_train,minlength=3)
