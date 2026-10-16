@@ -161,7 +161,10 @@ def audit(source:dict) -> dict:
             "fold_id":fold_id,
             "uplift_points":float(outcome["check_metrics"]["uplift_points"]),
             "coverage":float(outcome["check_metrics"]["coverage"]),
-            "precision":float(outcome["check_metrics"]["directional_precision"]),
+            "precision":(
+                float(outcome["check_metrics"]["correct_direction_class"])
+                / float(outcome["check_metrics"]["selected"])
+            ),
             "selected_truth_neutral_rate":outcome["check_metrics"]["neutral_among_selected"]
                                         /outcome["check_metrics"]["selected"],
         } for fold_id,outcome in feasible]
