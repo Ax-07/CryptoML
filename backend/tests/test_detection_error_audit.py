@@ -81,6 +81,8 @@ def test_full_existing_baseline_audit_no_new_training():
     assert result["no_new_training"] is True
     assert result["horizons"]["H2"]["overall"]["selected_truth_opposite"]==288
     assert result["horizons"]["H6"]["feasible_folds"]==36
+    assert result["horizons"]["H6"]["per_fold"][0]["precision"]==pytest.approx(0.5)
+    assert result["horizons"]["H6"]["per_fold"][0]["selected_truth_neutral_rate"]==pytest.approx(0.3)
 
 
 def test_reject_sealed_or_partial_reports():
