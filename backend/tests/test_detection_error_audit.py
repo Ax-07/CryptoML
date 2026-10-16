@@ -17,8 +17,8 @@ def cell(selected=10, correct=5, neutral=3, total=25):
         "uplift_points":100*(correct/selected-random_ref),
         "coverage":selected/total,
         "per_direction":{
-            "DOWN":{"predicted":6,"correct":3,"support":10},
-            "UP":{"predicted":4,"correct":2,"support":8},
+            "DOWN":{"predicted":6,"correct":3,"precision":0.5,"recall_of_true_class":0.3},
+            "UP":{"predicted":4,"correct":2,"precision":0.5,"recall_of_true_class":0.25},
         },
     }
 
@@ -51,8 +51,8 @@ def full_report():
         "neutral_among_selected":12,"random_reference_precision":0.3,
         "uplift_points":20.0,"coverage":0.4,
         "per_direction":{
-            "DOWN":{"predicted":24,"correct":12,"support":40},
-            "UP":{"predicted":16,"correct":8,"support":32},
+            "DOWN":{"predicted":24,"correct":12,"precision":0.5,"recall_of_true_class":0.3},
+            "UP":{"predicted":16,"correct":8,"precision":0.5,"recall_of_true_class":0.25},
         }
     }
     return {
@@ -94,3 +94,11 @@ def test_reject_sealed_or_partial_reports():
     source["folds"].pop()
     with pytest.raises(ValueError):
         audit(source)
+
+
+def test_serialized_direction_schema_has_no_support():
+    sample=cell()
+    assert "support" not in sample["per_direction"]["DOWN"]
+    actual=_audit_metrics([sample])
+    assert actual["directional"]["DOWN"]["precision"]==pytest.approx(0.5)
+    assert "recall_on_all_check_rows" not in actual["directional"]["DOWN"]
