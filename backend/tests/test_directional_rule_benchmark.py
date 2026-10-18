@@ -87,4 +87,4 @@ def test_summary_is_aligned_and_skips_infeasible_selection():
     result=summarize([rec])
     assert result["H2"]["shared_ml_selected"]["momentum_1"]["comparable_folds"]==0
     assert result["H6"]["ml_mask"]["feasible_folds"]==0
-    assert result["H2"]["all_check"]["majority_train"]["gain_vs_train_majority_points"] if False else True
+    assert result["H2"]["all_check"]["majority_train"]["mean_gain_vs_train_majority_points"]==pytest.approx(0.0)
