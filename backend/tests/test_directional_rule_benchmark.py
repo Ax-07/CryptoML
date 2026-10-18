@@ -69,16 +69,28 @@ def test_strictly_reject_ada_and_never_use_targets_in_rules():
 
 def test_summary_is_aligned_and_skips_infeasible_selection():
     rec={"horizons":{}}
+    truth=np.array([0,1,2])
+    majority=np.array([0,0,0])
+    candidate=np.array([0,2,2])
+    all_rows=np.ones(len(truth),dtype=bool)
+    oracle_movers=truth!=1
     for horizon in (2,6):
-        metric=fixed_mask_metrics(
-            np.array([0,1,2]),np.array([0,2,2]),
-            np.array([True,True,True]),np.array([0,0,0]))
+        # The majority_train rule MUST predict the identical train-derived
+        # majority reference on every row. The old fixture incorrectly gave
+        # it candidate predictions, creating a spurious +33.33 point gain.
+        rules={}
+        for name in RULES:
+            pred=majority if name=="majority_train" else candidate
+            rules[name]={
+                "all_check":fixed_mask_metrics(truth,pred,all_rows,majority),
+                "oracle_true_movers":fixed_mask_metrics(
+                    truth,pred,oracle_movers,majority),
+                "shared_ml_selected":None,
+            }
         rec["horizons"][f"H{horizon}"]={
             "ml_tuning":{"feasible":False},
             "realized_check_coverage":None,
-            "rules":{name:{"all_check":metric,
-                           "oracle_true_movers":metric,
-                           "shared_ml_selected":None} for name in RULES},
+            "rules":rules,
             "by_asset_selected":{
                 sym:{name:None for name in RULES}
                 for sym in ("BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT")
@@ -88,3 +100,7 @@ def test_summary_is_aligned_and_skips_infeasible_selection():
     assert result["H2"]["shared_ml_selected"]["momentum_1"]["comparable_folds"]==0
     assert result["H6"]["ml_mask"]["feasible_folds"]==0
     assert result["H2"]["all_check"]["majority_train"]["mean_gain_vs_train_majority_points"]==pytest.approx(0.0)
+    assert result["H2"]["oracle_true_movers"]["majority_train"]["mean_gain_vs_train_majority_points"]==pytest.approx(0.0)
+    assert result["H2"]["all_check"]["momentum_1"]["mean_gain_vs_train_majority_points"]==pytest.approx(100/3)
+    assert result["H2"]["oracle_true_movers"]["momentum_1"]["mean_gain_vs_train_majority_points"]==pytest.approx(50.0)
+    assert result["H2"]["oracle_true_movers"]["momentum_1"]["total_selected_rows_across_folds"]==2
