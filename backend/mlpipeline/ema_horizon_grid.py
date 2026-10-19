@@ -375,6 +375,9 @@ def main()->None:
     outputs=(a.output_json.resolve(),a.output_parquet.resolve())
     if outputs[0]==outputs[1] or any(p.exists() for p in outputs):
         parser.error("Outputs must be distinct nonexisting paths")
+    protected={a.fold_plan.resolve(),a.baseline_report.resolve()}
+    if any(p in protected for p in outputs):
+        parser.error("Outputs must not overwrite input reports")
     if any(p.is_relative_to(a.data_root.resolve().parent)
            for p in outputs):
         parser.error("Outputs must remain outside production data/repo")
