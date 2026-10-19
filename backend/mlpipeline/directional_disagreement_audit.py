@@ -84,7 +84,7 @@ def disagreement_counts(truth: np.ndarray, ml: np.ndarray, reversion: np.ndarray
     n = len(y)
     if (sum(cells.values()) != n
             or (cells["disagree_ml_correct"] + cells["disagree_reversion_correct"]
-                + cells["disagree_both_wrong_neutral"] != int((~agree).sum())
+                + cells["disagree_both_wrong_neutral"] != int((~agree).sum()))
             or (cells["agree_correct"] + cells["disagree_ml_correct"]
                 != int(pmatch.sum()))
             or (cells["agree_correct"] + cells["disagree_reversion_correct"]
