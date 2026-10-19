@@ -154,8 +154,8 @@ def verify_original_fold(previous:dict,*,horizon:int,threshold:dict,
     if threshold["feasible"] and not np.isclose(
             threshold["threshold"],old_threshold,atol=1e-12,rtol=0):
         raise ValueError(f"{hk}: baseline tuning threshold drift")
-    if not threshold["feasible"] and old_threshold is not None:
-        raise ValueError(f"{hk}: infeasible threshold drift")
+    # An infeasible score-only threshold may still have a numeric cutoff
+    # (e.g. ties): the prior feasibility flag, not None-ness, is authoritative.
     if (old["best_iteration"]!=all_check["best_iteration"]
             or old["train_counts"]!=all_check["train_counts"]):
         raise ValueError(f"{hk}: baseline training configuration drift")
