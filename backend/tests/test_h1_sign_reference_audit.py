@@ -24,7 +24,7 @@ def test_exact_paired_nonflat_and_tie_policy():
     assert x["accuracy"]["lightgbm_ema2"]==pytest.approx(2/3)
     assert x["accuracy"]["always_down"]==pytest.approx(1/3)
     assert x["accuracy"]["last_momentum"]==pytest.approx(0.)
-    assert x["accuracy"]["last_reversion"]==pytest.approx(1.)
+    assert x["accuracy"]["last_reversion"]==pytest.approx(2/3)
     pair=x["paired"]["lightgbm_30_minus_lightgbm_ema2"]
     assert pair["a_only"]==1 and pair["b_only"]==1
     assert pair["points"]==pytest.approx(0.)
