@@ -64,7 +64,7 @@ def test_previous_baseline_mismatch_rejects():
             for sym in ("BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT")}
     }}}
     row={"baseline":old_metrics}
-    all_check={"paired":row,"best_iteration":10,
+    all_check={**row,"best_iteration":10,
                "train_counts":{"DOWN":2,"NEUTRAL":1,"UP":2}}
     asset={sym:row for sym in ("BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT")}
     verify_original_fold(old,horizon=2,threshold={"feasible":True,"threshold":0.2},
