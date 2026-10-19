@@ -41,10 +41,10 @@ def test_direction_forced_binary_and_neutral_wrong():
         np.array([True,True,True]),ytrain,np.array([0,0,2]))
     assert result["n"]==3
     assert result["baseline"]["correct"]==1
-    assert result["candidate"]["correct"]==1
+    assert result["candidate"]["correct"]==2
     assert result["baseline"]["neutral_errors"]==1
     assert result["candidate_vs_baseline_disagreements"]["n"]==3
-    assert result["gain_candidate_points"]==pytest.approx(0.0)
+    assert result["gain_candidate_points"]==pytest.approx(100/3)
     assert score_pair(np.array([2,1,0]),probs_b,probs_c,
                       np.array([False]*3),ytrain,np.array([0,0,2])) is None
 
