@@ -25,6 +25,12 @@ def bars(n=80, gap_at=None, flat=False, scale=1):
         "bar_close_at":times+pd.Timedelta(minutes=5),
         "open":value,"high":value+0.05*scale,
         "low":value-0.05*scale,"close":value,
+        # Complete synthetic OHLCV contract required by build_symbol_features.
+        # No real data; volume is deterministic and positive.
+        "volume_base":np.full(n,10.0),
+        "volume_quote":10.0*value,
+        "trade_count":np.full(n,100,dtype=int),
+        "taker_buy_volume_base":np.full(n,5.0),
     })
 
 
