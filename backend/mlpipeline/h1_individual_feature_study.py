@@ -20,7 +20,6 @@ from mlpipeline.directional_rule_benchmark import parts_for_fold, majority_direc
 from mlpipeline.ema_horizon_grid import build_inputs, fold_examples, sign
 from mlpipeline.expanded_horizon_diagnostics import SEEN_SYMBOLS
 from mlpipeline.features import FEATURE_COLUMNS
-from mlpipeline.h1_sign_reference_audit import audit as _unused_audit
 from mlpipeline.label_stability_audit import load_plan
 from mlpipeline.trainer import _class_probs
 from mlpipeline.two_stage_diagnostics import _cpu_model
@@ -43,6 +42,7 @@ def load_reference(path:Path,report:dict,plan:list[dict])->pd.DataFrame:
         or report.get("folds_analyzed")!=36
         or report.get("base_comparison_H2_H6_reproduced") is not True
         or report.get("horizons")!=list(range(1,7))
+        or report.get("status")!="EXPLORATORY_REUSED_DEV_CHECKS"
         or report.get("no_ADA_no_OOS_no_final90_no_P3_modification") is not True):
         raise ValueError("Require verified full previous H1-H6 report")
     cols=["fold_id","symbol","bar_close_at","horizon","target_3class",
@@ -302,7 +302,8 @@ def main()->None:
     inputs={a.fold_plan.resolve(),a.h1h6_report.resolve(),a.predictions_parquet.resolve()}
     outputs={a.output_json.resolve(),a.output_csv.resolve()}
     if (len(outputs)!=2 or any(x.exists() or x in inputs for x in outputs)
-        or any(x==a.data_root.resolve() or a.data_root.resolve() in x.parents for x in outputs)):
+        or any(x==a.data_root.resolve().parent or a.data_root.resolve().parent in x.parents
+               for x in outputs)):
         p.error("Outputs must be distinct nonexisting non-P0 files")
     source=json.loads(a.fold_plan.read_text(encoding="utf-8"))
     old=json.loads(a.h1h6_report.read_text(encoding="utf-8"))
