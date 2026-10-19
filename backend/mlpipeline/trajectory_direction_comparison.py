@@ -159,7 +159,7 @@ def verify_original_fold(previous:dict,*,horizon:int,threshold:dict,
     if (old["best_iteration"]!=all_check["best_iteration"]
             or old["train_counts"]!=all_check["train_counts"]):
         raise ValueError(f"{hk}: baseline training configuration drift")
-    for view,observed in (("all_check",all_check["paired"]),
+    for view,observed in (("all_check",all_check),
                           ("shared_ml_selected",selected)):
         expected=old["rules"]["lightgbm_30"][view]
         if observed is None:
