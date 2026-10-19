@@ -63,9 +63,9 @@ def test_gap_resets_windows():
     vals = np.linspace(100.0, 120.0, 40)
     original = build_trajectory_features(candles(vals))
     changed = build_trajectory_features(candles(vals, gap_at=20))
-    assert np.isfinite(original.loc[20, TRAJECTORY_COLUMNS].to_numpy(dtype=float)).all()
-    assert changed.loc[20:31, TRAJECTORY_COLUMNS].isna().all().all()
-    assert np.isfinite(changed.loc[32, TRAJECTORY_COLUMNS].to_numpy(dtype=float)).all()
+    assert np.isfinite(original.loc[20, list(TRAJECTORY_COLUMNS)].to_numpy(dtype=float)).all()
+    assert changed.loc[20:31, list(TRAJECTORY_COLUMNS)].isna().all().all()
+    assert np.isfinite(changed.loc[32, list(TRAJECTORY_COLUMNS)].to_numpy(dtype=float)).all()
 
 
 def test_refuses_noncausal_or_invalid_ohlc():
