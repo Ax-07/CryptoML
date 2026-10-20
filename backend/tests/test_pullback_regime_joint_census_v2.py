@@ -47,3 +47,38 @@ def test_zero_signals_explicit_zeros():
     assert c["events"]==0
     assert len(c["joint"])==3
     assert all(v==0 for sub in c["joint"].values() for v in sub.values())
+
+
+def test_empty_month_categorical_counts_do_not_duplicate_axes():
+    # A month can have many closed candles but zero V1-selected signals.
+    base = pd.DataFrame({"pullback_signal":[False]*40,
+        **{x:[0.0]*40 for x in FEATURE_COLUMNS}})
+    report = cross_counts(base)
+    assert report["events"] == 0
+    assert report["valid_events"] == 0
+    assert report["unclassified"] == 0
+    assert all(n == 0 for counts in report["joint"].values() for n in counts.values())
+
+
+def test_boundary_buckets_are_left_closed_right_open():
+    # Exact boundaries must match the already frozen descriptive protocol.
+    base = pd.DataFrame({"pullback_signal":[True]*4,
+        **{x:[1.0]*4 for x in FEATURE_COLUMNS}})
+    base["v2_trend_spread_atr"] = [0.0, 0.5, 1.5, 0.5]
+    base["v2_pullback_depth_ema9_atr"] = [0.0, 0.5, 1.0, 0.0]
+    result = cross_counts(base)
+    assert result["joint"]["low"]["shallow"] == 1
+    assert result["joint"]["mid"]["medium"] == 1
+    assert result["joint"]["high"]["deep"] == 1
+    assert result["joint"]["mid"]["shallow"] == 1
+
+
+def test_repeated_categorical_cells_reconcile_without_duplicate_labels():
+    base = pd.DataFrame({"pullback_signal":[True]*40,
+        **{x:[1.0]*40 for x in FEATURE_COLUMNS}})
+    base["v2_trend_spread_atr"] = [0.25]*40
+    base["v2_pullback_depth_ema9_atr"] = [0.25]*40
+    result = cross_counts(base)
+    assert result["joint"]["low"]["shallow"] == 40
+    assert result["valid_events"] == 40
+    assert sum(sum(row.values()) for row in result["joint"].values()) == 40
