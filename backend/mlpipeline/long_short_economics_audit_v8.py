@@ -85,7 +85,7 @@ def symbol_events(candles: pd.DataFrame, classification: pd.DataFrame) -> tuple[
                 or bars.bar_close_at.iloc[i + 1] != signal_at + M5
                 or window.bar_open_at.iloc[0] != signal_at + M5
                 or window.bar_close_at.iloc[-1] != mature
-                or not window.bar_open_at.diff().iloc[1:].eq(M5)):
+                or not window.bar_open_at.diff().iloc[1:].eq(M5).all()):
             excluded += 1
             continue
         atr = float(f.atr14.iloc[i])
