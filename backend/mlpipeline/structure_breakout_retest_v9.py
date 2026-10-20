@@ -123,7 +123,7 @@ def detect(bars:pd.DataFrame,*,start:pd.Timestamp=PROSPECTIVE_START)->pd.DataFra
             ("SHORT","DOWN",float(r.structure_low),
              r.close<r.structure_low-BREAKOUT_ATR*r.atr14 and p.close>=r.structure_low),
         ):
-            if r.h1_regime==regime_key and cross:
+            if r.bar_close_at>=start and r.h1_regime==regime_key and cross:
                 active={"at_idx":i,"side":side,"level":level,"atr":float(r.atr14),
                         "breakout_time":r.bar_close_at,"h1_regime":regime_key}
                 cooldown=i
