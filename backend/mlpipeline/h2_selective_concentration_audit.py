@@ -79,3 +79,83 @@ def verified(frame,report,plan):
                 if got["trades"] else old["trades"]!=0):
                 raise ValueError("Asset summary differs")
     return frame.sort_values(["fold_id","symbol","bar_close_at"]).reset_index(drop=True)
+
+def describe(frame,name="regression_30"):
+    x=frame.copy()
+    x["side"]=x[name+"_side"].astype(int)
+    x=x.loc[x.side.ne(0)].copy()
+    x["net_bps"]=x.side*x.delayed_return_bps-2.
+    x["gross_bps"]=x.side*x.delayed_return_bps
+    return x
+
+def aggregate(x):
+    if x.empty:
+        return {"trades":0,"sum_net_bps":0.,"mean_net_bps_per_trade":None}
+    return {"trades":len(x),"sum_net_bps":float(x.net_bps.sum()),
+            "mean_net_bps_per_trade":float(x.net_bps.mean()),
+            "wins":int(x.net_bps.gt(0).sum()),"losses":int(x.net_bps.lt(0).sum())}
+
+def extremes(x):
+    good=x.sort_values("net_bps",ascending=False)
+    bad=x.sort_values("net_bps")
+    rows=[]
+    for n in (1,5,10):
+        rest_good=good.iloc[n:]
+        rest_bad=bad.iloc[n:]
+        rows.append({"excluded_top":n,
+          "top_gain_sum_bps":float(good.head(n).net_bps.sum()),
+          "without_best":aggregate(rest_good),
+          "without_worst":aggregate(rest_bad)})
+    cols=["fold_id","symbol","bar_close_at","side","gross_bps","net_bps"]
+    def records(f): 
+        z=f[cols].copy();z["bar_close_at"]=z.bar_close_at.astype(str)
+        return z.to_dict("records")
+    quantiles={str(q):float(x.net_bps.quantile(q)) for q in (0,.01,.05,.25,.5,.75,.95,.99,1)}
+    return {"quantiles_net_bps":quantiles,"outlier_sensitivity":rows,
+            "best_five":records(good.head(5)),"worst_five":records(bad.head(5))}
+
+def audit(frame):
+    x=describe(frame)
+    total=aggregate(x)
+    folds={str(fid):aggregate(x.loc[x.fold_id.eq(fid)]) for fid in range(36)}
+    assets={sym:aggregate(x.loc[x.symbol.eq(sym)]) for sym in SEEN_SYMBOLS}
+    by_side={side:aggregate(x.loc[x.side.eq(v)]) for side,v in (("LONG",1),("SHORT",-1))}
+    days=x.assign(day=x.bar_close_at.dt.strftime("%Y-%m-%d")).groupby(
+         "day",sort=True).net_bps.agg(["size","sum"]).reset_index()
+    days=days.sort_values("sum",ascending=False)
+    key=["symbol","bar_close_at"]
+    duplicates=x.duplicated(key,keep=False)
+    unique=x.sort_values(["fold_id","symbol","bar_close_at"]).drop_duplicates(key,keep="first")
+    independent=aggregate(unique)
+    leave={}
+    for fid in range(36):
+        remaining=x.loc[x.fold_id.ne(fid)]
+        leave[str(fid)]=aggregate(remaining)
+    runs=[]
+    for (fold,sym),group in x.groupby(["fold_id","symbol"]):
+        t=group.sort_values("bar_close_at")
+        run=t.bar_close_at.diff().ne(pd.Timedelta(minutes=5)).cumsum()
+        for _,part in t.groupby(run):
+            if len(part)>1:
+                runs.append({"fold_id":int(fold),"symbol":sym,
+                             "signals_consecutive":int(len(part)),
+                             "sum_net_bps":float(part.net_bps.sum())})
+    runs=sorted(runs,key=lambda z:(-z["signals_consecutive"],z["fold_id"]))[:20]
+    positive_sum=sum(max(0,v["sum_net_bps"]) for v in folds.values())
+    return {"status":"POST_HOC_REUSED_CHECKS_NOT_INDEPENDENT",
+      "model":"regression_30","fixed_cost_bps":2,
+      "all":total,"fold_1":folds["1"],
+      "without_fold_1":leave["1"],
+      "positive_folds":sum(v["sum_net_bps"]>0 for v in folds.values()),
+      "negative_folds":sum(v["sum_net_bps"]<0 for v in folds.values()),
+      "empty_folds":sum(v["trades"]==0 for v in folds.values()),
+      "folds":folds,"leave_one_fold_out":leave,
+      "fold_1_share_of_all_trades":folds["1"]["trades"]/len(x),
+      "fold_1_share_of_positive_fold_contributions":folds["1"]["sum_net_bps"]/positive_sum if positive_sum else None,
+      "by_asset":assets,"by_side":by_side,
+      "top_positive_days":days.head(10).to_dict("records"),
+      "top_negative_days":days.sort_values("sum").head(10).to_dict("records"),
+      "same_market_time_trades_across_folds":int(duplicates.sum()),
+      "deduplicated_earliest_fold_diagnostic":independent,
+      "longest_consecutive_signal_runs":runs,
+      "extremes":extremes(x)}
