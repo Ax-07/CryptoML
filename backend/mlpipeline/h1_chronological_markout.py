@@ -262,15 +262,15 @@ def calculate(data:pd.DataFrame)->dict:
     by_fold={str(fid):_score_scope(data.loc[data.fold_id.eq(fid)])
              for fid in range(36)}
     for name in MODEL_NAMES:
-        total=sum(x["nonflat_rows"] for x in by_fold.values())
-        hits=sum(x["models"][name]["sign_correct_nonflat"] for x in by_fold.values())
+        total=sum(x["nonflat_rows"] for x in by_fold.values() if x is not None)
+        hits=sum(x["models"][name]["sign_correct_nonflat"] for x in by_fold.values() if x is not None)
         if (total!=pooled["nonflat_rows"] or
             hits!=pooled["models"][name]["sign_correct_nonflat"]):
             raise AssertionError("Fold-level accuracy fails pooled reconciliation")
     pairs={}
     for model,ref in COMPARISONS:
         key=f"{model}_minus_{ref}"
-        values=[x["paired"][key]["gross_proxy_difference_bps_per_signal"] for x in by_fold.values()]
+        values=[x["paired"][key]["gross_proxy_difference_bps_per_signal"] for x in by_fold.values() if x is not None]
         pairs[key]={
             "pooled":pooled["paired"][key],
             "mean_fold_gross_difference_bps":float(np.mean(values)),
