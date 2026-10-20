@@ -40,22 +40,25 @@ def cross_counts(features: pd.DataFrame) -> dict:
     matrix = chosen.loc[:, FEATURE_COLUMNS].to_numpy(dtype=float)
     valid = np.isfinite(matrix).all(axis=1)
     eligible = chosen.loc[valid]
-    strength_bins = pd.cut(
-        eligible.v2_trend_spread_atr,
-        [-np.inf, 0.5, 1.5, np.inf],
-        labels=list(STRENGTH), right=False,
+    # searchsorted(..., side="right") matches pd.cut(..., right=False):
+    # 0.5/1.5 belong to the higher strength class, 0/0.5/1 to the
+    # higher depth class. Unlike pd.crosstab on categorical data, this
+    # always yields a stable 3x4 matrix, even for zero selected signals.
+    strength_codes = np.searchsorted(
+        [0.5, 1.5],
+        eligible.v2_trend_spread_atr.to_numpy(dtype=float),
+        side="right",
     )
-    depth_bins = pd.cut(
-        eligible.v2_pullback_depth_ema9_atr,
-        [-np.inf, 0.0, 0.5, 1.0, np.inf],
-        labels=list(DEPTH), right=False,
+    depth_codes = np.searchsorted(
+        [0.0, 0.5, 1.0],
+        eligible.v2_pullback_depth_ema9_atr.to_numpy(dtype=float),
+        side="right",
     )
-    table = pd.crosstab(strength_bins, depth_bins, dropna=False)
-    table = table.reindex(index=list(STRENGTH), columns=list(DEPTH),
-                          fill_value=0)
+    table = np.zeros((len(STRENGTH), len(DEPTH)), dtype=np.int64)
+    np.add.at(table, (strength_codes, depth_codes), 1)
     cells = {
-        s: {d: int(table.loc[s, d]) for d in DEPTH}
-        for s in STRENGTH
+        s: {d: int(table[i, j]) for j, d in enumerate(DEPTH)}
+        for i, s in enumerate(STRENGTH)
     }
     events, valid_events = len(chosen), len(eligible)
     if (sum(sum(v.values()) for v in cells.values()) != valid_events
