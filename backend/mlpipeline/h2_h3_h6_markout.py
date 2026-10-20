@@ -48,3 +48,70 @@ def verify_rebuild(data,report):
                 if (old[model] is None or old[model]["n"]!=len(sub)
                     or old[model]["correct"]!=int(sub[model+"_sign"].eq(sub.target_3class).sum())):
                     raise ValueError("Original check score drift")
+
+def summarize(data):
+    for name,values in {
+        "always_down_sign":np.zeros(len(data),dtype=int),
+        "reversion_1_sign":np.where(data.previous_return.to_numpy(dtype=float)<0,2,0)
+    }.items():
+        data[name]=values
+    output={}
+    for h in HORIZONS:
+        subset=data.loc[data.horizon.eq(h)]
+        phases=[{"phase":p,"metrics":evaluate_rows(phase_rows(subset,p))}
+                for p in range(h)]
+        first=phase_rows(subset,0)
+        output[f"H{h}"]={
+            "minutes":h*5,"dense_overlapping_nonadditive":evaluate_rows(subset),
+            "fixed_nonoverlap_phase0":evaluate_rows(first),
+            "phase_sensitivity":phases,
+            "by_symbol":{s:{"dense":evaluate_rows(subset.loc[subset.symbol.eq(s)]),
+                            "phase0":evaluate_rows(first.loc[first.symbol.eq(s)])}
+                         for s in SEEN_SYMBOLS},
+            "by_fold":{str(fid):{"dense":evaluate_rows(subset.loc[subset.fold_id.eq(fid)]),
+                                 "phase0":evaluate_rows(first.loc[first.fold_id.eq(fid)])}
+                       for fid in range(36)},
+            "duplicate_market_times_across_folds":int(
+                len(subset)-len(subset[["symbol","bar_close_at"]].drop_duplicates()))
+        }
+    return {"protocol":PROTOCOL,"status":"REUSED_DEV_CHECKS_EXPLORATORY_NOT_EXECUTABLE",
+            "no_training":True,"no_P3_ADA_OOS_final90":True,
+            "theoretical_close_t_entry_not_executable":True,
+            "no_portfolio_compounding_or_real_fills":True,
+            "fixed_roundtrip_cost_bps":[0,2,5,10],
+            "horizons":output}
+
+def main():
+    p=argparse.ArgumentParser()
+    for k in ("data-root","fold-plan","h1h6-report","predictions-parquet","output-json","output-csv"):
+        p.add_argument("--"+k,required=True,type=Path)
+    p.add_argument("--verify-hashes",action="store_true")
+    a=p.parse_args()
+    outputs=(a.output_json.resolve(),a.output_csv.resolve())
+    sources=(a.fold_plan.resolve(),a.h1h6_report.resolve(),a.predictions_parquet.resolve())
+    root=a.data_root.resolve().parent
+    if (outputs[0]==outputs[1] or any(
+        x.exists() or x in sources or x.parent!=a.predictions_parquet.resolve().parent
+        or x==root or root in x.parents for x in outputs)):
+        p.error("Output collision/non-isolated output")
+    source=json.loads(a.fold_plan.read_text(encoding="utf8"))
+    report=json.loads(a.h1h6_report.read_text(encoding="utf8"))
+    plan=load_plan(source)
+    if source["dataset_fingerprint_sha256"]!=report.get("source_dataset_fingerprint_sha256"):
+        raise ValueError("Historical manifest fingerprint mismatch")
+    load_reference(a.predictions_parquet,report,plan)
+    cols=KEY+["target_3class","next_bar_return"]+[m+"_sign" for m in MODELS]
+    grid=pd.read_parquet(a.predictions_parquet,columns=cols)
+    selected=verify_grid(grid,report,plan)
+    store=CandleStore(a.data_root)
+    candles={}; manifests=[]
+    for s in SEEN_SYMBOLS:
+        print("Original P0 read-only",s,flush=True)
+        bars,part=load_symbol(store,s,months=24,verify_hashes=a.verify_hashes)
+        manifests.extend(part)
+        candles[s]=build_symbol_features(bars.loc[bars.bar_close_at.lt(plan[-1]["check_end"])])
+    if manifest_fingerprint(manifests)!=source["dataset_fingerprint_sha256"]:
+        raise ValueError("P0 hash mismatch")
+    data=rebuild(selected,candles,plan,report)
+    verify_rebuild(data,report)
+    result=summarize(data)
