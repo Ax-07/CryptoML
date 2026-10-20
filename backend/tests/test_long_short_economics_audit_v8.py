@@ -87,6 +87,19 @@ def test_event_windows_do_not_access_incomplete_future():
         "open":p,"high":p+0.3,"low":p-0.3,"close":p,
         "is_final":True})
     classification=classify_m5(bars)
+    # Force a valid fully matured event (the previous synthetic data could
+    # produce zero events and thus never exercise the six-bar guard).
+    assert len(classification) == len(bars)
+    idx = 120
+    classification = classification.copy()
+    classification.loc[idx, "long_signal"] = True
+    classification.loc[idx, "short_signal"] = False
+    events,counts=symbol_events(bars,classification)
+    assert counts["matured"] >= 1
+    forced = events.loc[events.signal_close_at.eq(bars.bar_close_at.iloc[idx])]
+    assert len(forced)==1
+    assert forced.iloc[0].side=="LONG"
+    assert forced.iloc[0].mature_at == bars.bar_close_at.iloc[idx] + pd.Timedelta(minutes=35)
     events,counts=symbol_events(bars,classification)
     assert counts["candidate_signals"]==counts["matured"]+counts["excluded_immature_or_gap_or_invalid"]
     if not events.empty:
