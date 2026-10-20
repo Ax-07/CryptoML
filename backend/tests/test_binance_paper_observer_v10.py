@@ -31,7 +31,7 @@ def test_single_new_decision_and_idempotent_journal():
         assert record(conn,s,now,c,"BTCUSDT")==0
         assert conn.execute("select count(*) from observed_signals").fetchone()[0]==1
         assert conn.execute("select provenance from observed_signals").fetchone()[0]==(
-            "LOCAL_OBSERVATION_NOT_EXTERNAL_ATTESTATION",)
+            "LOCAL_OBSERVATION_NOT_EXTERNAL_ATTESTATION")
 
 
 def test_stale_candles_rejected_even_with_signal():
@@ -66,10 +66,36 @@ def test_fetch_never_admits_forming_bar(monkeypatch):
     opened=boundary-M5_MS
     def fake(symbol,start_ms,end_ms,limit):
         observed.append((start_ms,end_ms))
+        # Deliberately return an out-of-range still-forming bar as well.
+        # fetch_recent must NOT keep it, even if the provider misbehaves.
         return [[opened,100,101,99,100,0,0],
                 [boundary,100,101,99,100,0,0]]
     monkeypatch.setattr(module,"request_klines",fake)
-    with pytest.raises(ValueError,match="insufficient"):
-        fetch_recent("BTCUSDT",end,needed=2)
+    complete=fetch_recent("BTCUSDT",end,needed=1)
+    assert len(complete)==1
+    assert complete.bar_open_at.iloc[0]==pd.Timestamp(opened,unit="ms",tz="UTC")
+    assert complete.bar_close_at.iloc[-1]==pd.Timestamp(boundary,unit="ms",tz="UTC")
     assert observed
     assert all(b<boundary for a,b in observed)
+
+
+def test_fetch_insufficient_after_valid_partial_page(monkeypatch):
+    import mlpipeline.binance_paper_observer_v10 as module
+    requests=[]
+    end=int(pd.Timestamp("2026-10-22T04:02:00Z").timestamp()*1000)
+    boundary=(end//M5_MS)*M5_MS
+    opened=boundary-M5_MS
+
+    def fake(symbol,start_ms,end_ms,limit):
+        requests.append((start_ms,end_ms))
+        # First page has only one complete candle. The next page is empty,
+        # as opposed to repeating a row outside the requested older window.
+        if len(requests)==1:
+            return [[opened,100,101,99,100,0,0]]
+        return []
+
+    monkeypatch.setattr(module,"request_klines",fake)
+    with pytest.raises(ValueError,match="insufficient"):
+        fetch_recent("BTCUSDT",end,needed=2)
+    assert len(requests)==2
+    assert requests[1][1]<requests[0][1]
