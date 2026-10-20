@@ -91,3 +91,90 @@ def summarize_tune(df,name):
             "min_leave_one_fold_out_sum_net_bps":min(leave),
             "without_best_five_sum_net_bps":float(bps.sum()-best_five),
             "eligibility_rules":rules,"eligible":all(rules.values())}
+
+def run(candles,source,fingerprint):
+    plan=load_plan(source)
+    if len(plan)!=36 or set(candles)!=set(SEEN_SYMBOLS) or fingerprint!=source["dataset_fingerprint_sha256"]:
+        raise ValueError("Wrong immutable P2 dataset")
+    frames=[]; records=[]
+    for fold in plan:
+        fid=fold["fold_id"]
+        chunks=prepared_parts(candles,fold,source["folds"][fid])
+        # Tuning labels are never supplied to fitting, only to final descriptive scoring.
+        pred,fits=fit(chunks["train"],chunks["early_stopping"],chunks["tuning"])
+        tune=chunks["tuning"]
+        out=tune[["symbol","bar_close_at","delayed_return_bps","delayed_mature_at"]].copy()
+        out["fold_id"]=fid
+        for name in NAMES:
+            out[name+"_expected_bps"]=pred[name]
+            out[name+"_side"]=policy(pred[name])
+        frames.append(out)
+        records.append({"fold_id":fid,"train_rows":len(chunks["train"]),
+                        "early_rows":len(chunks["early_stopping"]),
+                        "tuning_rows":len(tune),"fitting":fits})
+        print("fold",fid,"tuning_only",len(tune),
+              "reg30_trades",int((out.regression_30_side!=0).sum()),flush=True)
+    all_pred=pd.concat(frames,ignore_index=True)
+    if all_pred.duplicated(["fold_id","symbol","bar_close_at"]).any():
+        raise ValueError("Duplicate tuning forecast")
+    scored={name:summarize_tune(all_pred,name) for name in NAMES}
+    selected=next((n for n in ("ridge_ema2","regression_30") if scored[n]["eligible"]),None)
+    report={"protocol":PROTOCOL,
+            "status":"INTERNAL_TUNING_ONLY_NOT_INDEPENDENT_OOS",
+            "source_model_protocol":MODEL_PROTOCOL,
+            "dataset_fingerprint_sha256":fingerprint,
+            "folds_analyzed":36,
+            "selection":"NO_ELIGIBLE_CANDIDATE" if selected is None else selected,
+            "selection_is_not_validation":True,
+            "never_loaded_or_scored_development_checks":True,
+            "no_ADA_no_fold_OOS_no_final90_no_P3":True,
+            "fixed_abs_signal_threshold_bps":3.0,
+            "fixed_roundtrip_cost_bps":2.0,
+            "no_executable_fill_guarantee":True,
+            "summary":scored,"folds":records}
+    return report,all_pred
+
+def main():
+    p=argparse.ArgumentParser(description="P2 train-early-tune ONLY H2 internal selection")
+    for name in ("data-root","fold-plan","output-json","output-csv","output-parquet"):
+        p.add_argument("--"+name,type=Path,required=True)
+    p.add_argument("--verify-hashes",action="store_true")
+    a=p.parse_args()
+    src=a.fold_plan.resolve()
+    outs=[a.output_json.resolve(),a.output_csv.resolve(),a.output_parquet.resolve()]
+    forbidden=a.data_root.resolve().parent
+    if (len(set(outs))!=3 or any(x.exists() or x==src or x==forbidden or
+         forbidden in x.parents or x.parent!=src.parent for x in outs)):
+        p.error("Outputs must be new files in original isolated fold-plan results folder")
+    source=json.loads(a.fold_plan.read_text(encoding="utf-8"))
+    plan=load_plan(source)
+    store=CandleStore(a.data_root)
+    candles={};files=[]
+    for sym in SEEN_SYMBOLS:
+        print("Consulting immutable P0",sym,flush=True)
+        candles[sym],m=load_symbol(store,sym,months=24,verify_hashes=a.verify_hashes)
+        files.extend(m)
+    fingerprint=manifest_fingerprint(files)
+    report,pred=run(candles,source,fingerprint)
+    rows=[]
+    for name,x in report["summary"].items():
+        d=x["metrics"]
+        rows.append({"candidate":name,"eligible":x["eligible"],
+            "trades":d["trades"],"opportunities":d["opportunities"],
+            "coverage":d["coverage"],
+            "net_per_opportunity_bps":d["by_cost"]["2"]["net_bps_per_opportunity"],
+            "net_per_trade_bps":d["by_cost"]["2"]["net_bps_per_trade"],
+            "active_folds":x["active_folds"],
+            "positive_active_folds":x["positive_active_folds"],
+            "without_best_five_sum_net_bps":x["without_best_five_sum_net_bps"],
+            "min_leave_one_fold_out_sum_net_bps":x["min_leave_one_fold_out_sum_net_bps"]})
+    with a.output_json.open("x",encoding="utf-8") as f:
+        json.dump(report,f,ensure_ascii=False,indent=2,allow_nan=False)
+    with a.output_csv.open("x",encoding="utf-8") as f:
+        pd.DataFrame(rows).to_csv(f,index=False)
+    pred.to_parquet(a.output_parquet,index=False)
+    print("INTERNAL TUNING-ONLY selection:",report["selection"],flush=True)
+    print("Saved",a.output_json,a.output_csv,a.output_parquet,flush=True)
+
+if __name__=="__main__":
+    main()
