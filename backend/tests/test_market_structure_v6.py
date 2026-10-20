@@ -34,7 +34,18 @@ def test_higher_candles_only_complete_and_aligned():
 def test_incomplete_future_hour_cannot_be_joined():
     f=bars(n=480)
     out=classify_m5(f)
-    assert (out.context_closed_at_h1.dropna()<=out.bar_close_at).all()
+    # Restrict BOTH series to the same rows: dropna() on just one side
+    # changes its index and pandas rightly refuses an unaligned comparison.
+    for timeframe, minutes in (("m15", 15), ("h1", 60)):
+        column = f"context_closed_at_{timeframe}"
+        known = out[column].notna()
+        assert known.any(), f"No completed {timeframe} bar in synthetic history"
+        close_at = out.loc[known, "bar_close_at"]
+        context_at = out.loc[known, column]
+        assert (context_at <= close_at).all(), f"Future {timeframe} context was joined"
+        assert ((close_at - context_at) < pd.Timedelta(minutes=minutes)).all(), (
+            f"Stale {timeframe} context was joined"
+        )
     first=out.loc[out.bar_close_at.eq(pd.Timestamp("2026-02-01T00:55:00Z"))]
     assert first.iloc[0].regime_h1=="UNKNOWN"
     # Perturbation future : everything before a cutoff must remain unchanged.
