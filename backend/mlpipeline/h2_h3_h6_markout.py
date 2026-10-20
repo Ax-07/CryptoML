@@ -115,3 +115,31 @@ def main():
     data=rebuild(selected,candles,plan,report)
     verify_rebuild(data,report)
     result=summarize(data)
+
+    rows=[]
+    for name,part in result["horizons"].items():
+        for view in ("dense_overlapping_nonadditive","fixed_nonoverlap_phase0"):
+            for model,rec in part[view]["models"].items():
+                for cost in (0,2,5,10):
+                    rows.append({"horizon":name,"minutes":part["minutes"],
+                        "view":view,"model":model,"cost_bps":cost,
+                        "signals":part[view]["n"],
+                        "accuracy_nonflat":rec["accuracy_nonflat"],
+                        "gross_mean_bps":rec["gross_mean_bps"],
+                        "net_mean_bps":rec["net_mean_bps"][str(cost)],
+                        "executable":False})
+    with a.output_json.open("x",encoding="utf8") as f:
+        json.dump(result,f,indent=2,ensure_ascii=False,allow_nan=False)
+    with a.output_csv.open("x",encoding="utf8") as f:
+        pd.DataFrame(rows).to_csv(f,index=False)
+    print("Saved",a.output_json,a.output_csv,flush=True)
+    for h,part in result["horizons"].items():
+        x=part["fixed_nonoverlap_phase0"]["models"]["lightgbm_30"]
+        print(h,"n=",part["fixed_nonoverlap_phase0"]["n"],
+              "accuracy=",x["accuracy_nonflat"],
+              "gross_bps=",x["gross_mean_bps"],
+              "net_2bps=",x["net_mean_bps"]["2"],flush=True)
+    print("NOT EXECUTABLE, REUSED DEV CHECKS",flush=True)
+
+if __name__=="__main__":
+    main()
