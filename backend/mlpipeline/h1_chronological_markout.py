@@ -58,7 +58,7 @@ def validate_inputs(grid:pd.DataFrame, binary_report:dict,
         or len(grid)!=len(old_h1)
         or grid[KEY].isna().any(axis=None)
         or grid[KEY].duplicated().any()
-        or grid.symbol.isin(SEEN_SYMBOLS).all() is False
+        or not grid.symbol.isin(SEEN_SYMBOLS).all()
         or not isinstance(grid.bar_close_at.dtype,pd.DatetimeTZDtype)
         or str(grid.bar_close_at.dt.tz)!="UTC"
         or not grid.fold_id.isin(range(36)).all()):
@@ -261,7 +261,6 @@ def calculate(data:pd.DataFrame)->dict:
               for sym in SEEN_SYMBOLS}
     by_fold={str(fid):_score_scope(data.loc[data.fold_id.eq(fid)])
              for fid in range(36)}
-    consistency={}
     for name in MODEL_NAMES:
         total=sum(x["nonflat_rows"] for x in by_fold.values())
         hits=sum(x["models"][name]["sign_correct_nonflat"] for x in by_fold.values())
