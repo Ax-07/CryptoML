@@ -38,3 +38,37 @@ def rebuild(pred,features,plan,report):
     if len(out)!=len(pred) or out.duplicated(KEY).any():
         raise ValueError("Rebuilt keys drift")
     return out
+
+def phase_rows(frame,phase):
+    h=int(frame.horizon.iloc[0])
+    if h not in HORIZONS or not frame.horizon.eq(h).all() or not 0<=phase<h:
+        raise ValueError("Invalid phase")
+    base=frame.groupby(["fold_id","symbol"]).bar_close_at.transform("min")
+    steps=((frame.bar_close_at-base)//pd.Timedelta(minutes=5)).astype("int64")
+    sub=frame.loc[steps.mod(h).eq(phase)]
+    for _,part in sub.groupby(["fold_id","symbol"]):
+        if not part.bar_close_at.sort_values().diff().dropna().ge(pd.Timedelta(minutes=5*h)).all():
+            raise ValueError("Overlap in phase")
+    return sub
+
+def evaluate_rows(frame):
+    if frame.empty:
+        return None
+    ret=frame.actual_return.to_numpy(dtype=float)
+    if not np.isfinite(ret).all():
+        raise ValueError("Bad return")
+    actual=np.where(ret>0,2,0)
+    valid=ret!=0
+    models={}
+    for name in (*MODELS,"always_down","reversion_1"):
+        direction=frame[name+"_sign"].to_numpy(dtype=int)
+        if not np.isin(direction,[0,2]).all():
+            raise ValueError("Bad sign")
+        gross=np.where(direction==2,1,-1)*ret*10000
+        models[name]={
+            "accuracy_nonflat":float((direction[valid]==actual[valid]).mean()) if valid.any() else None,
+            "gross_mean_bps":float(gross.mean()),
+            "net_mean_bps":{"0":float(gross.mean()),"2":float(gross.mean()-2),
+                            "5":float(gross.mean()-5),"10":float(gross.mean()-10)},
+        }
+    return {"n":len(frame),"nonflat":int(valid.sum()),"flat":int((~valid).sum()),"models":models}
