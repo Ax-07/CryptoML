@@ -73,11 +73,12 @@ def verified(frame,report,plan):
             got=metrics(s.delayed_return_bps.to_numpy(dtype=float),
                         s[name+"_side"].to_numpy(dtype=int))
             old=report["by_asset"][sym][name]
-            if (got["trades"]!=old["trades"] or
-                abs(got["by_cost"]["2"]["net_bps_per_trade"]-
-                    old["by_cost"]["2"]["net_bps_per_trade"])>1e-10
-                if got["trades"] else old["trades"]!=0):
-                raise ValueError("Asset summary differs")
+            if got["trades"]!=old["trades"]:
+                raise ValueError("Asset trade count differs")
+            if got["trades"] and abs(
+                got["by_cost"]["2"]["net_bps_per_trade"]-
+                old["by_cost"]["2"]["net_bps_per_trade"])>1e-10:
+                raise ValueError("Asset mean net differs")
     return frame.sort_values(["fold_id","symbol","bar_close_at"]).reset_index(drop=True)
 
 def describe(frame,name="regression_30"):
@@ -159,3 +160,38 @@ def audit(frame):
       "deduplicated_earliest_fold_diagnostic":independent,
       "longest_consecutive_signal_runs":runs,
       "extremes":extremes(x)}
+
+def main():
+    p=argparse.ArgumentParser(description="P2 H2 selective retrospective concentration audit: NO fits")
+    for name in ("binary-report","predictions-parquet","fold-plan","output-json","output-csv"):
+        p.add_argument("--"+name,type=Path,required=True)
+    a=p.parse_args()
+    inputs=[a.binary_report.resolve(),a.predictions_parquet.resolve(),a.fold_plan.resolve()]
+    outs=[a.output_json.resolve(),a.output_csv.resolve()]
+    if (len(set(outs))!=2 or any(o.exists() or o in inputs or
+        o.parent!=a.predictions_parquet.resolve().parent for o in outs)):
+        p.error("New separate output paths in same isolated results directory only")
+    report=json.loads(a.binary_report.read_text(encoding="utf-8"))
+    plan_source=json.loads(a.fold_plan.read_text(encoding="utf-8"))
+    plan=load_plan(plan_source)
+    if report.get("source_fingerprint_sha256")!=plan_source["dataset_fingerprint_sha256"]:
+        raise ValueError("Original P2 data fingerprint mismatch")
+    raw=pd.read_parquet(a.predictions_parquet)
+    clean=verified(raw,report,plan)
+    result=audit(clean)
+    result["protocol"]="p2_h2_selective_concentration_audit_v1"
+    result["no_fit_no_P0_no_ADA_no_reserved_OOS_no_final90_no_P3"]=True
+    rows=[{"fold_id":fid,**score} for fid,score in result["folds"].items()]
+    with a.output_json.open("x",encoding="utf-8") as f:
+        json.dump(result,f,indent=2,ensure_ascii=False,allow_nan=False)
+    with a.output_csv.open("x",encoding="utf-8") as f:
+        pd.DataFrame(rows).to_csv(f,index=False)
+    print("No-fit concentration audit saved:",a.output_json,a.output_csv,flush=True)
+    for key in ("all","fold_1","without_fold_1","deduplicated_earliest_fold_diagnostic"):
+        print(key,result[key],flush=True)
+    print("POSITIVE/NEGATIVE/EMPTY FOLDS",result["positive_folds"],
+          result["negative_folds"],result["empty_folds"],flush=True)
+    print("NOT REAL PROFITS OR INDEPENDENT OOS",flush=True)
+
+if __name__=="__main__":
+    main()
