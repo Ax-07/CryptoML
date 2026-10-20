@@ -79,10 +79,24 @@ def test_reject_unseen_or_out_of_period():
     f["ADAUSDT"] = f.pop("BTCUSDT")
     with pytest.raises(ValueError,match="Four seen"):
         compare_fixed_models(f, "a"*64)
+    # Move an early event to the end: the first guard correctly rejects
+    # nonmonotonic events before it checks the temporal cutoff.
     f = fake_events()
     f["BTCUSDT"].loc[0,"signal_close_at"] = CUTOFF
-    with pytest.raises(ValueError,match="misclocked|Unsorted"):
+    with pytest.raises(ValueError, match="invalid event frame"):
         compare_fixed_models(f,"a"*64)
+
+
+def test_reject_reserved_date_even_when_chronology_and_clocks_are_valid():
+    # Exercise the independent July cutoff guard, rather than accidentally
+    # exercising only the earlier sortedness check.
+    f = fake_events()
+    last = f["BTCUSDT"].index[-1]
+    f["BTCUSDT"].loc[last, "signal_close_at"] = CUTOFF
+    f["BTCUSDT"].loc[last, "entry_at"] = CUTOFF + M5
+    f["BTCUSDT"].loc[last, "mature_at"] = CUTOFF + pd.Timedelta(minutes=35)
+    with pytest.raises(ValueError, match="out-of-scope"):
+        compare_fixed_models(f, "a"*64)
 
 
 def test_reject_invalid_features_and_model_cohort():
