@@ -4,7 +4,17 @@ import pytest
 from mlpipeline.pullback_regime_joint_census_v2 import cross_counts, joint_report
 from mlpipeline.pullback_regime_v2 import FEATURE_COLUMNS
 from mlpipeline.pullback_regime_census_v2 import SYMBOLS
-from tests.test_pullback_regime_census_v2 import synthetic
+import numpy as np
+
+def synthetic(symbol):
+    periods=[pd.date_range("2025-12-05T00:00:00Z",periods=75,freq="5min")]
+    periods += [pd.date_range(f"2026-{m:02d}-05T00:00:00Z",periods=75,freq="5min") for m in range(1,7)]
+    timestamps=periods[0].append(periods[1:])
+    close=100+0.01*np.arange(len(timestamps))
+    return pd.DataFrame({"symbol":symbol,"bar_open_at":timestamps,
+      "bar_close_at":timestamps+pd.Timedelta(minutes=5),
+      "open":close-0.02,"high":close+0.1,"low":close-0.1,
+      "close":close,"is_final":True})
 from mlpipeline.pullback_regime_v2 import describe_regimes
 
 def test_joint_reconciles_four_symbols_seven_months():
