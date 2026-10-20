@@ -110,10 +110,12 @@ def detect(bars:pd.DataFrame,*,start:pd.Timestamp=PROSPECTIVE_START)->pd.DataFra
             continue
         # Ensure input is an uninterrupted segment and indicators valid.
         p=f.iloc[i-1]
+        expected_level_close = bucket_end.iloc[i] - pd.Timedelta(minutes=15)
         if (r.bar_open_at-p.bar_open_at!=M5 or
                 not np.isfinite(r.atr14) or r.atr14<=0 or
                 pd.isna(r.level_known_at) or
-                r.level_known_at>r.bar_close_at-pd.Timedelta(minutes=15)):
+                r.level_known_at != expected_level_close):
+            # Reject stale structure after a gap or missing complete M15.
             continue
         for side,regime_key,level,cross in (
             ("LONG","UP",float(r.structure_high),
