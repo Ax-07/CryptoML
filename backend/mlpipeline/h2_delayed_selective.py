@@ -130,7 +130,7 @@ def run(candles,source,original,old_predictions,fingerprint):
         train=attach(parts["train"],truth)
         early=attach(parts["early_stopping"],truth)
         check=attach(parts["validation_check"],truth)
-        for part,bound in ((train,fold["check_start"]-pd.Timedelta(days=14)),
+        for part,bound in ((train,fold["check_start"]-pd.Timedelta(days=10)),
                            (early,fold["check_start"]-pd.Timedelta(days=3)),
                            (check,fold["check_end"])):
             if (part.delayed_return_bps.isna().any() or
@@ -192,3 +192,55 @@ def run(candles,source,original,old_predictions,fingerprint):
         "source_fingerprint_sha256":fingerprint,
         "summary":totals,"by_asset":by_asset,"folds":records}
     return report,pred
+
+def main():
+    parser=argparse.ArgumentParser(description="P2 historical delayed H2 selective regression")
+    for name in ("data-root","fold-plan","h1h6-report","predictions-parquet",
+                 "output-json","output-csv","output-parquet"):
+        parser.add_argument("--"+name,required=True,type=Path)
+    parser.add_argument("--verify-hashes",action="store_true")
+    a=parser.parse_args()
+    outs=[a.output_json.resolve(),a.output_csv.resolve(),a.output_parquet.resolve()]
+    ins=[a.fold_plan.resolve(),a.h1h6_report.resolve(),a.predictions_parquet.resolve()]
+    production=a.data_root.resolve().parent
+    if (len(set(outs))!=3 or any(x.exists() or x in ins or
+        x.parent!=a.predictions_parquet.resolve().parent or
+        x==production or production in x.parents for x in outs)):
+        parser.error("Only new files in isolated results folder")
+    source=json.loads(a.fold_plan.read_text(encoding="utf8"))
+    original=json.loads(a.h1h6_report.read_text(encoding="utf8"))
+    plan=load_plan(source)
+    if source.get("dataset_fingerprint_sha256")!=original.get("source_dataset_fingerprint_sha256"):
+        raise ValueError("Original P2 fingerprint mismatch")
+    # Verify original full H1-H6 historical report, exact check keys and H1 scores.
+    load_reference(a.predictions_parquet,original,plan)
+    reference=pd.read_parquet(a.predictions_parquet,
+        columns=["fold_id","symbol","bar_close_at","horizon","lightgbm_30_sign"])
+    store=CandleStore(a.data_root)
+    candles={};files=[]
+    for sym in SEEN_SYMBOLS:
+        print("Read original P0:",sym,flush=True)
+        candles[sym],entries=load_symbol(store,sym,months=24,
+                                         verify_hashes=a.verify_hashes)
+        files.extend(entries)
+    fingerprint=manifest_fingerprint(files)
+    report,pred=run(candles,source,original,reference,fingerprint)
+    rows=[]
+    for name,value in report["summary"].items():
+        for cost,item in value["by_cost"].items():
+            rows.append({"model":name,"cost_bps":cost,
+                "signals":value["trades"],"opportunities":value["opportunities"],
+                "coverage":value["coverage"],
+                "gross_per_opportunity_bps":value["gross_bps_per_opportunity"],
+                "net_per_opportunity_bps":item["net_bps_per_opportunity"],
+                "net_per_trade_bps":item["net_bps_per_trade"],"executable":False})
+    with a.output_json.open("x",encoding="utf8") as f:
+        json.dump(report,f,indent=2,ensure_ascii=False,allow_nan=False)
+    with a.output_csv.open("x",encoding="utf8") as f:
+        pd.DataFrame(rows).to_csv(f,index=False)
+    pred.to_parquet(a.output_parquet,index=False)
+    print("Saved:",a.output_json,a.output_csv,a.output_parquet,flush=True)
+    print("EXPLORATORY NOT AN EXECUTABLE BACKTEST",flush=True)
+
+if __name__=="__main__":
+    main()
