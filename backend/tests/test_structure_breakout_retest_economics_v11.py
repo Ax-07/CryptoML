@@ -10,7 +10,8 @@ from mlpipeline.structure_breakout_retest_historical_v11 import detect as histor
 from mlpipeline.structure_breakout_retest_v9 import detect as prospective
 
 
-def candles(n=700,starting="2026-10-21T00:00:00Z"):
+def candles(n=700,starting="2026-06-01T00:00:00Z"):
+    """Historical V11 economic tests must mature BEFORE its July 2026 cutoff."""
     stamps=pd.date_range(starting,periods=n,freq="5min")
     x=np.arange(n,dtype=float)
     prices=100+0.025*x+np.sin(x/5.0)*0.15
@@ -65,11 +66,19 @@ def test_reject_gap_without_synthetic_ohlc():
 
 
 def test_reject_maturity_at_historical_cutoff():
-    b=candles(n=400,starting="2026-06-29T16:00:00Z")
-    at=390
+    # A complete 24-bar future window exists, but its 120-minute maturity
+    # crosses the protected 2026-07-01 UTC boundary.
+    b=candles(n=140,starting="2026-06-30T15:00:00Z")
+    at=105
+    decision=b.bar_close_at.iloc[at]
+    assert at+24<len(b)
+    assert decision<pd.Timestamp("2026-07-01T00:00:00Z")
+    assert decision+pd.Timedelta(minutes=120)>=CUTOFF
     events,count=score_symbol(b,mocked_events(b,at=at))
     assert events.empty
+    assert count["candidate_decisions"]==1
     assert count["no_contiguous_full_24bar_window"]==1
+    assert count["matured"]==0
 
 
 def test_cost_corruption_rejected():
@@ -81,7 +90,8 @@ def test_cost_corruption_rejected():
 
 
 def test_historical_clone_same_later_decisions_as_prospective():
-    b=candles(n=800)
+    # Only this parity test uses post-start data; it evaluates NO economic labels.
+    b=candles(n=800,starting="2026-10-21T00:00:00Z")
     a=historical(b,start=pd.Timestamp("2026-10-22T00:00:00Z"))
     c=prospective(b,start=pd.Timestamp("2026-10-22T00:00:00Z"))
     pd.testing.assert_frame_equal(a,c,check_like=True)
