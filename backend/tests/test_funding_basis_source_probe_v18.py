@@ -27,10 +27,20 @@ def test_archive_probe_is_bounded_and_non_ingesting(monkeypatch):
 
 
 def test_http_404_not_false_positive(monkeypatch):
-    def fail(_):
-        raise HTTPError("https://data.binance.vision",404,"Not Found",{},None)
-    monkeypatch.setattr(m,"urlopen",fail)
-    result=m._head_status("https://data.binance.vision/data/test.zip")
-    assert result["http"]==404 and result["state"]=="NOT_CONFIRMED"
-    funding=m._funding_sample()
-    assert funding["http"]==404 and funding["state"]=="NOT_CONFIRMED"
+    """Simulate urllib.urlopen's actual (request, timeout=...) interface."""
+    seen = []
+
+    def fail(request, *, timeout):
+        assert timeout == 12
+        seen.append((request.get_method(), request.full_url))
+        raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(m, "urlopen", fail)
+    result = m._head_status("https://data.binance.vision/data/test.zip")
+    assert result["http"] == 404 and result["state"] == "NOT_CONFIRMED"
+
+    funding = m._funding_sample()
+    assert funding["http"] == 404 and funding["state"] == "NOT_CONFIRMED"
+
+    assert [method for method, _ in seen] == ["HEAD", "GET"]
+    assert "/fapi/v1/fundingRate?" in seen[1][1]
