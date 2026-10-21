@@ -98,7 +98,8 @@ def _select(f:pd.DataFrame,strategy:str,tf:str,mode:str)->pd.DataFrame:
                 if r.close>r.box_high12+0.1*r.atr14: side="LONG"
                 elif r.close<r.box_low12-0.1*r.atr14: side="SHORT"
         else:
-            if i==0:continue
+            if i==0 or r.bar_open_at-f.bar_open_at.iloc[i-1]!=pd.Timedelta(minutes=60):
+                continue
             p=f.iloc[i-1]
             low_band=p.sma20-2*p.std20
             high_band=p.sma20+2*p.std20
@@ -191,7 +192,7 @@ def main():
     if len(set(outs))!=3 or any(x.exists() or x.is_relative_to(root) or not x.parent.is_dir() for x in outs):
         p.error("Three NEW outputs outside P0 required")
     bars,manifests=load_long_development_history(CandleStore(root))
-    for sym in SYMBOLS:print("V13 candidates",sym,flush=True)
+    print("V13: evaluating five predeclared families on the four SHA-verified symbols",flush=True)
     report,(signals,monthly)=census(bars,manifest_fingerprint(manifests))
     with outs[1].open("x",encoding="utf-8",newline="") as f:signals.to_csv(f,index=False)
     with outs[2].open("x",encoding="utf-8",newline="") as f:monthly.to_csv(f,index=False)
