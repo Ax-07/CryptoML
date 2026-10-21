@@ -64,6 +64,12 @@ def test_symmetric_high_volume_signal():
     for side in (1,-1):
         c=candles(360,side=side)
         # All the last three M5 of a completed M15 are impulsive.
+        # Make the last M15 bar strongly directional without invalid OHLC.
+        c.loc[242,"close"] += side*1.0
+        if side==1:
+            c.loc[242,"high"]=max(c.loc[242,"high"],c.loc[242,"close"]+0.1)
+        else:
+            c.loc[242,"low"]=min(c.loc[242,"low"],c.loc[242,"close"]-0.1)
         c.loc[240:242,"volume_base"]=100.
         c.loc[240:242,"taker_buy_volume_base"]=100. if side==1 else 0.
         c.loc[240:242,"volume_quote"]=c.loc[240:242,"volume_base"]*c.loc[240:242,"close"]
