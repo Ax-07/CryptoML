@@ -66,7 +66,12 @@ def score_symbol(bars:pd.DataFrame, signals:pd.DataFrame):
                           f"{tag}_gross_bps":float(gross),
                           **{f"{tag}_net_{cost}bps":float(gross-cost) for cost in COSTS}})
         output.append(event)
-    result=pd.DataFrame.from_records(output)
+    columns=["symbol","side","breakout_close_at","decision_close_at","entry_at",
+             "entry_price","atr_at_breakout","regime"]
+    for h in HORIZONS:
+        columns += [f"h{h}_exit_price",f"h{h}_exit_reason",f"h{h}_gross_bps"]
+        columns += [f"h{h}_net_{cost}bps" for cost in COSTS]
+    result=pd.DataFrame.from_records(output,columns=columns)
     exclusions["matured"]=len(result)
     if (sum(exclusions[k] for k in ("matured","no_contiguous_full_24bar_window",
                                    "invalid_barrier")) != exclusions["candidate_decisions"]):
