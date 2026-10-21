@@ -140,7 +140,10 @@ def candidates(bars:pd.DataFrame)->pd.DataFrame:
             "decision_close_at":historical.decision_close_at.to_numpy(),
             "reference_price":close,"atr_known":historical.atr_at_breakout.to_numpy(dtype=float)
         }))
-    merged=pd.concat(all_frames,ignore_index=True) if all_frames else pd.DataFrame(columns=FIELDS)
+    # Empty candidate frames can carry all-NA object columns. Exclude them
+    # before concat to keep Pandas dtype inference stable across releases.
+    nonempty=[part for part in all_frames if not part.empty]
+    merged=pd.concat(nonempty,ignore_index=True) if nonempty else pd.DataFrame(columns=FIELDS)
     if not merged.empty:
         merged["decision_close_at"]=pd.to_datetime(merged.decision_close_at,utc=True)
         merged=merged.sort_values(["decision_close_at","strategy"]).reset_index(drop=True)
