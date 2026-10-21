@@ -63,7 +63,11 @@ def _kline(blob:bytes,kind:str):
         not ts.dt.second.eq(0).all() or not ts.dt.minute.mod(5).eq(0).all()):
         raise ValueError(kind+" timestamps incomplete")
     values={}
-    for i,label in enumerate(("open","high","low","close","volume"),start=1):
+    # Binance markPriceKlines column 5 is an ignored placeholder, not
+    # traded volume. Keep real volume ONLY for spot and perp klines.
+    labels=("open","high","low","close") if kind=="mark" else (
+        "open","high","low","close","volume")
+    for i,label in enumerate(labels,start=1):
         x=pd.to_numeric(frame.iloc[:,i],errors="raise").to_numpy(dtype=float)
         if not np.isfinite(x).all() or (x<0).any() or (label!="volume" and (x<=0).any()):
             raise ValueError(kind+" bad "+label)
@@ -115,10 +119,12 @@ def _check_p0(store:CandleStore,ts:pd.Series,prices:dict):
 
 
 def run(v19:Path,v20:Path,root:Path,destination:Path):
-    lineage=_reference(v19,v20)
+    # Destination safety is a preflight invariant: refuse overwrite or P0
+    # access BEFORE reading lineage files or issuing any network requests.
     if destination.exists() or not destination.parent.is_dir() or (
         destination==root or destination.is_relative_to(root) or root.is_relative_to(destination)):
         raise ValueError("New destination outside protected P0 required")
+    lineage=_reference(v19,v20)
     with tempfile.TemporaryDirectory(prefix="v21-staging-",dir=destination.parent) as stagedir:
         stage=Path(stagedir)
         raw_dir=stage/"raw"
