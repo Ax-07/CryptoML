@@ -72,3 +72,27 @@ def test_refuse_to_overwrite_or_write_inside_p0(tmp_path):
     dest=tmp_path/"existing";dest.mkdir()
     with pytest.raises(ValueError,match="New destination"):
         run(tmp_path/"none",tmp_path/"none",tmp_path/"p0",dest)
+
+
+def test_bad_destination_is_rejected_before_any_report_access_or_network(tmp_path, monkeypatch):
+    import mlpipeline.funding_basis_immutable_pilot_v21 as m
+    def forbidden(*args, **kwargs):
+        raise AssertionError("No lineage access or network for invalid destination")
+    monkeypatch.setattr(m, "_reference", forbidden)
+    monkeypatch.setattr(m, "fetch", forbidden)
+    root=tmp_path/"p0"
+    root.mkdir()
+    with pytest.raises(ValueError, match="New destination"):
+        m.run(tmp_path/"absent19", tmp_path/"absent20", root, tmp_path/"p0"/"child")
+    with pytest.raises(ValueError, match="New destination"):
+        m.run(tmp_path/"absent19", tmp_path/"absent20", root, tmp_path)
+
+
+def test_mark_price_has_no_trade_volume_field():
+    dates=pd.date_range("2025-06-01T00:00:00Z", periods=N, freq="5min")
+    text="".join(
+        f"{int(t.timestamp()*1000)},100,101,99,100,0,"
+        f"{int(t.timestamp()*1000)+299999}\n" for t in dates
+    )
+    _,_,values=_kline(zipped(text),"mark")
+    assert set(values)=={"open","high","low","close"}
