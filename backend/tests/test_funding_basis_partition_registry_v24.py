@@ -7,13 +7,27 @@ import mlpipeline.funding_basis_partition_registry_v24 as m
 
 def test_registry_84_partitions_without_files(tmp_path):
     root=tmp_path/"p0"
+    v21=tmp_path/"v21"  # Nonexistent V21 directory: no legacy partition.
+    v23=tmp_path/"v23"
+    for p in (root,v23):p.mkdir()
+    rows=m.registry(root,v21,v23)
+    assert len(rows)==84
+    assert rows.status.eq("MISSING").all(), rows.loc[rows.status.ne("MISSING")].to_string(index=False)
+    assert rows[["symbol","month"]].duplicated().sum()==0
+
+
+def test_existing_but_empty_legacy_v21_directory_fails_integrity(tmp_path):
+    # A present directory with no manifest must NOT be silently marked MISSING.
+    root=tmp_path/"p0"
     v21=tmp_path/"v21"
     v23=tmp_path/"v23"
     for p in (root,v21,v23):p.mkdir()
     rows=m.registry(root,v21,v23)
-    assert len(rows)==84
-    assert rows.status.eq("MISSING").all()
-    assert rows[["symbol","month"]].duplicated().sum()==0
+    bad=rows.loc[(rows.symbol=="BTCUSDT") & (rows.month=="2025-06")].iloc[0]
+    assert bad.status=="FAILED_INTEGRITY"
+    assert bad.error_type=="FileNotFoundError"
+    assert rows.status.eq("FAILED_INTEGRITY").sum()==1
+    assert rows.status.eq("MISSING").sum()==83
 
 
 def test_registry_does_not_trust_existing_folder(tmp_path):
