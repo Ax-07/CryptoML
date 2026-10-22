@@ -42,7 +42,7 @@ def test_execute_requires_exact_sha(tmp_path,monkeypatch):
     paths,_=setup(tmp_path,monkeypatch)
     out=tmp_path/"plan.json"
     m.plan(paths,["XRPUSDT:2024-11"],out)
-    with pytest.raises(ValueError,match="permission"):
+    with pytest.raises(ValueError,match="--permit-downloads"):
         m.execute(out,"bad",tmp_path/"journal",tmp_path/"summary")
     with pytest.raises(ValueError,match="SHA256"):
         m.execute(out,"0"*64,tmp_path/"journal",tmp_path/"summary",True)
@@ -53,13 +53,27 @@ def test_resume_skips_verified_and_ingests_next(tmp_path,monkeypatch):
     out=tmp_path/"plan.json"
     m.plan(paths,["ETHUSDT:2024-11","SOLUSDT:2024-11"],out)
     state[("ETHUSDT","2024-11")]="VERIFIED_V23"
-    monkeypatch.setattr(m,"snapshot",lambda *args:{})
+    # The synthetic already-verified partition must contain a manifest:
+    # V27 hashes it during the preflight to detect tampering.
+    v23=paths[2]
+    existing=v23/"symbol=ETHUSDT"/"month=2024-11"
+    existing.mkdir(parents=True)
+    (existing/"manifest.json").write_text(
+        json.dumps({"symbol":"ETHUSDT","month":"2024-11"}),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(m.shutil,"disk_usage",lambda *args:type("Usage",(),{"free":m.MIN_FREE+1})())
     events=[]
     def ingest(s,month,*args):
         events.append((s,month))
+        folder=v23/f"symbol={s}"/f"month={month}"
+        folder.mkdir(parents=True)
+        (folder/"manifest.json").write_text(
+            json.dumps({"symbol":s,"month":month}),encoding="utf-8",
+        )
         state[(s,month)]="VERIFIED_V23"
     monkeypatch.setattr(m,"ingest",ingest)
+    # Only the full parquet/P0 validator is mocked; the manifest hashes stay real.
     monkeypatch.setattr(m,"verify",lambda *args,**kwargs:None)
     result=m.execute(out,m.sha(out),tmp_path/"journal",tmp_path/"summary",True)
     assert events==[("SOLUSDT","2024-11")]
@@ -92,3 +106,28 @@ def test_first_ingestion_failure_stops_second(tmp_path,monkeypatch):
         m.execute(out,m.sha(out),tmp_path/"journal",tmp_path/"summary",True)
     assert calls==[("SOLUSDT","2024-11")]
     assert json.loads((tmp_path/"summary").read_text())["failed"]["error_type"]=="ValueError"
+
+
+def test_ingest_without_manifest_fails_closed_and_preserves_journal(tmp_path,monkeypatch):
+    paths,state=setup(tmp_path,monkeypatch)
+    planned=tmp_path/"plan.json"
+    m.plan(paths,["XRPUSDT:2024-11"],planned)
+    monkeypatch.setattr(
+        m.shutil,"disk_usage",
+        lambda *args:type("Usage",(),{"free":m.MIN_FREE+1})(),
+    )
+    calls=[]
+    def incomplete_ingest(symbol,month,*args):
+        calls.append((symbol,month))
+        # Explicitly do NOT publish a manifest: validation must reject this.
+    monkeypatch.setattr(m,"ingest",incomplete_ingest)
+    monkeypatch.setattr(m,"verify",lambda *args,**kwargs:None)
+    with pytest.raises(RuntimeError,match="Batch stopped"):
+        m.execute(planned,m.sha(planned),tmp_path/"journal",tmp_path/"summary",True)
+    assert calls==[("XRPUSDT","2024-11")]
+    result=json.loads((tmp_path/"summary").read_text(encoding="utf-8"))
+    assert result["failed"]["error_type"]=="FileNotFoundError"
+    assert result["newly_verified"]==0
+    events=[json.loads(x)["event"] for x in
+            (tmp_path/"journal").read_text(encoding="utf-8").splitlines()]
+    assert events==["PRECHECK_OK","STARTED","FAILED","BATCH_FAILED"]
