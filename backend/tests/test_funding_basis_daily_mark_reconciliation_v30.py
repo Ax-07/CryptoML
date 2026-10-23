@@ -10,7 +10,7 @@ from mlpipeline import funding_basis_daily_mark_reconciliation_v30 as m
 
 
 def klines(start, end, omit=None):
-    omit = set(omit or [])
+    omit = set(omit) if omit is not None else set()
     dates = pd.date_range(start, end - m.M5, freq="5min")
     buf = io.StringIO()
     for time in dates:
