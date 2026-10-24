@@ -15,4 +15,4 @@ Audit V24 indépendant : 80/84 vérifiées, 4 MISSING, 0 FAILED_INTEGRITY. Pour 
 - Faire évoluer explicitement le registre agrégé : 1 V21 + 79 V23 + jusqu'à 4 V33. Ne pas afficher `84 VERIFIED_V23` ou supposer qu'un audit V24 inchangé comptera les V33.
 - Ne jamais prétendre qu'il s'agit d'un OOS indépendant, ni lancer PnL, ordres, entraînement ou B01/B02 à cette étape.
 
-**Statut : document de conception, aucun outil d'ingestion V33 implémenté ou autorisé.**
+**Statut : implémentation V33 expérimentale et tests synthétiques publiés sur branche isolée ; aucune exécution sur archives réelles, aucun résultat d'audit V33 confirmé et AUCUNE autorisation de publier avant revue/tests complets.**
