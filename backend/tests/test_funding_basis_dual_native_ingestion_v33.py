@@ -95,3 +95,43 @@ def test_audit_counts_are_explicit_v33():
     assert result["total_verified"]==84
     assert result["counts"]["VERIFIED_V33"]==4
     assert result["counts"]["MISSING"]==0
+
+
+def test_stage_fails_without_publishing_partition(tmp_path, monkeypatch):
+    """A verification rejection must leave no V33 target directory."""
+    root = tmp_path / "p0"
+    v33 = tmp_path / "v33"
+    root.mkdir()
+    v33.mkdir()
+    monkeypatch.setattr(m, "MIN_FREE", 0)
+    monkeypatch.setattr(m, "validate_coverage", lambda cj, cc: {"frozen": True})
+    monkeypatch.setattr(m, "compare_p0", lambda *args: "p0-ok")
+    monkeypatch.setattr(m, "decode_original", lambda *args, **kwargs: (
+        (None, (None, None, None), None,
+         pd.DataFrame({"funding_at": [pd.Timestamp("2026-06-01", tz="UTC")],
+                       "funding_rate_fraction": [0.001],
+                       "funding_interval_hours": [8]})),
+        b"reconstructed",
+        {"mark_monthly": {"zip_sha256": "monthly"}},
+    ))
+    monkeypatch.setattr(
+        m, "market_frame",
+        lambda _: pd.DataFrame({"bar_open_at": [pd.Timestamp("2026-06-01", tz="UTC")],
+                                "mark_close": [100.0]}),
+    )
+    monkeypatch.setattr(
+        pd.DataFrame, "to_parquet",
+        lambda self, path, **kwargs: Path(path).write_bytes(b"fixture"),
+    )
+    monkeypatch.setattr(
+        m, "verify_one",
+        lambda *args: (_ for _ in ()).throw(ValueError("staging source replay rejected")),
+    )
+    with pytest.raises(ValueError, match="staging source replay rejected"):
+        m.build_one("BTCUSDT", root, v33, tmp_path/"cj", tmp_path/"cc", {
+            "v22": {"frozen": True},
+            "approved_plan_sha256": "0"*64,
+            "reports_sha256": {"v30_sha256": "1"*64, "v32_sha256": "2"*64},
+        })
+    assert not (v33/"symbol=BTCUSDT"/"month=2026-06").exists()
+    assert list(v33.glob("v33-staging-*")) == []
