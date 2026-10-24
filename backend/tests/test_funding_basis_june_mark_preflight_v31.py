@@ -14,7 +14,7 @@ def test_permission(tmp_path):
 def test_three_symbols_report_read_only(tmp_path,monkeypatch):
     def fake_archive(url):
         assert "/monthly/markPriceKlines/" in url
-        name=url.split("/")[6] if False else url.split("/")[-1].split("-")[0]
+        name=url.rsplit("/",1)[-1].split("-")[0]
         gap=(20,) if name=="SOLUSDT" else ()
         blob=csv_bytes(drop=gap)
         return blob,{"url":url,"zip_sha256":hashlib.sha256(blob).hexdigest(),
