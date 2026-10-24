@@ -288,6 +288,10 @@ def build_one(symbol, root, v33, coverage_json, coverage_csv, plan):
         }
         (stage / "manifest.json").write_text(json.dumps(manifest, indent=2),
                                               encoding="utf-8")
+        # Full source replay and P0 verification must succeed *before* publication.
+        # A rejected stage is automatically discarded by TemporaryDirectory,
+        # never leaving a FAILED_INTEGRITY target directory in the registry.
+        verify_one(stage, symbol, root, coverage_json, coverage_csv)
         dest.parent.mkdir(exist_ok=True)
         if dest.exists():
             raise ValueError("Destination appeared before atomic rename")
