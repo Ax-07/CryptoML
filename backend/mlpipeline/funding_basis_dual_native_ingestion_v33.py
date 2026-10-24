@@ -61,6 +61,10 @@ MARK_PINNED = {
 }
 
 
+# Compatibility alias for the frozen archive-pin contract tested by V33.
+MARK_PINN = MARK_PINNED
+
+
 def sha_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -183,6 +187,10 @@ def verify_raw_zip(zip_bytes: bytes, checksum_bytes: bytes, pin=None):
         "zip_sha256": actual,
         "checksum_sha256": sha_bytes(checksum_bytes),
     }
+
+
+# Compatibility alias: identical immutable SHA/checksum validation semantics.
+checked_zip_blob = verify_raw_zip
 
 
 def decode_original(raw_dir: Path, symbol: str, download=False):
