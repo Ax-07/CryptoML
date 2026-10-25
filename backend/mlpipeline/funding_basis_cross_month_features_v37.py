@@ -240,7 +240,7 @@ def main():
     for name in ("freeze-json","freeze-sha256","v35-json","v35-sha256",
                  "v36-json","v36-sha256","output-json","output-csv"):
         parser.add_argument("--"+name,required=True,
-                            type=Path if name.endswith("json") else str)
+                            type=Path if name.endswith("json") or name=="output-csv" else str)
     a=parser.parse_args()
     report=run(a.freeze_json,a.freeze_sha256,a.v35_json,a.v35_sha256,
                a.v36_json,a.v36_sha256,a.output_json,a.output_csv)
