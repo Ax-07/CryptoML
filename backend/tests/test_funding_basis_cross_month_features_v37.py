@@ -58,8 +58,9 @@ def test_future_month_mutation_cannot_change_previous_features():
     joined=pd.concat([v for _,v in months],ignore_index=True)
     head=m.build_causal_features(joined.iloc[:60])
     change=joined.copy()
-    for field in ("spot_close","perp_close","mark_close"):
-        change.loc[60:,field]*=1.01
+    for kind in ("spot","perp","mark"):
+        for field in ("open","high","low","close"):
+            change.loc[60:,f"{kind}_{field}"]*=1.01
     after=m.build_causal_features(change)
     pd.testing.assert_frame_equal(head,after.iloc[:60].reset_index(drop=True),check_exact=True)
 
