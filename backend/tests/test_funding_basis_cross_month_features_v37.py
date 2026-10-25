@@ -44,12 +44,14 @@ def test_cross_month_gap_fails_closed():
         m.stitch_verified_months([months[0],("2024-11",b)])
 
 
-def test_overlapping_cross_month_fails_closed():
+def test_overlapping_cross_month_fails_closed_at_month_membership_guard():
     months=two_months()
     b=months[1][1].copy()
     b.loc[:,"bar_open_at"]-=m.M5
     b.loc[:,"bar_close_at"]-=m.M5
-    with pytest.raises(ValueError,match="gap/overlap"):
+    # Moving Nov 1 00:00 back one M5 makes its first open Oct 31 23:55:
+    # the stricter month-membership check rejects it before the overlap check.
+    with pytest.raises(ValueError,match="Noncausal month, incomplete grid or blind access"):
         m.stitch_verified_months([months[0],("2024-11",b)])
 
 
