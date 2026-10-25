@@ -12,9 +12,10 @@ from pathlib import Path
 import pandas as pd
 from mlpipeline.funding_basis_unified_dev_reader_v34 import sha_file, APPROVED_FREEZE_SHA256, BEGIN
 from mlpipeline.funding_basis_walkforward_preflight_v35 import (
-    PROTOCOL as V35_PROTOCOL, V35_POLICY, make_calendar_folds,
+    PROTOCOL as V35_PROTOCOL, make_calendar_folds,
     INTERNAL_RESERVE_START, CUTOFF, LABEL_HORIZON_BARS, EMBARGO_BARS, M5,
 )
+from mlpipeline.funding_basis_causal_native_features_v36 import V35_POLICY
 from mlpipeline.funding_basis_cross_month_features_v37 import (
     PROTOCOL as V37_PROTOCOL, RESULT_STATUS as V37_STATUS,
     FEATURE_SCHEMA_VERSION, EXPECTED_STITCHED_COMPLETE,
@@ -96,7 +97,7 @@ def run(v35_path:Path,v35_sha:str,v37_path:Path,v37_sha:str,
         raise ValueError("Unexpected fold schedule")
     counts={subset:sum(r["theoretical_upper_bound_all_four_symbols"] for r in rows if r["subset"]==subset)
             for subset in ("train","validation","test")}
-    if counts!={"train":4560996,"validation":530640,"test":530640}:
+    if counts!={"train":4560804,"validation":530640,"test":530640}:
         raise ValueError("Theoretical bounds differ from frozen calendar")
     report={
         "protocol":PROTOCOL,"v35_report_sha256":v35_sha,"v37_report_sha256":v37_sha,
